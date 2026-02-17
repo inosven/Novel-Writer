@@ -1,0 +1,208 @@
+@import "tailwindcss";
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-gray-100 dark:bg-gray-800;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-300 dark:bg-gray-600 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-400 dark:bg-gray-500;
+}
+
+/* Base styles */
+html {
+  @apply scroll-smooth;
+}
+
+body {
+  @apply bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-white;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+}
+
+/* Focus styles */
+*:focus {
+  @apply outline-none;
+}
+
+*:focus-visible {
+  @apply ring-2 ring-blue-500 ring-offset-2 ring-offset-white dark:ring-offset-gray-900;
+}
+
+/* Selection */
+::selection {
+  @apply bg-blue-500/30;
+}
+
+/* Prose styles for markdown content */
+.prose {
+  @apply text-gray-800 dark:text-gray-200;
+}
+
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4 {
+  @apply text-gray-900 dark:text-white font-bold;
+}
+
+.prose h1 {
+  @apply text-2xl mb-4;
+}
+
+.prose h2 {
+  @apply text-xl mb-3 mt-6;
+}
+
+.prose h3 {
+  @apply text-lg mb-2 mt-4;
+}
+
+.prose p {
+  @apply mb-4 leading-relaxed;
+}
+
+.prose ul,
+.prose ol {
+  @apply mb-4 pl-6;
+}
+
+.prose li {
+  @apply mb-1;
+}
+
+.prose code {
+  @apply bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-sm;
+}
+
+.prose pre {
+  @apply bg-gray-100 dark:bg-gray-700 p-4 rounded-lg overflow-x-auto mb-4;
+}
+
+.prose blockquote {
+  @apply border-l-4 border-gray-300 dark:border-gray-600 pl-4 italic text-gray-600 dark:text-gray-400;
+}
+
+/* Animation keyframes */
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-25%);
+  }
+}
+
+.animate-bounce {
+  animation: bounce 0.6s infinite;
+}
+
+.delay-100 {
+  animation-delay: 0.1s;
+}
+
+.delay-200 {
+  animation-delay: 0.2s;
+}
+
+/* Transitions */
+.transition-colors {
+  @apply transition-colors duration-200 ease-in-out;
+}
+
+/* Toast animations */
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOut {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+.toast-enter {
+  animation: slideIn 0.3s ease-out;
+}
+
+.toast-exit {
+  animation: slideOut 0.3s ease-in;
+}
+
+/* Modal backdrop blur */
+.backdrop-blur {
+  backdrop-filter: blur(4px);
+}
+
+/* Custom utilities */
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Writing editor specific styles */
+.writing-editor {
+  @apply font-serif text-lg leading-loose;
+  min-height: 400px;
+}
+
+.writing-editor::placeholder {
+  @apply text-gray-400 dark:text-gray-500;
+}
+
+/* Character profile styles */
+.character-profile h2 {
+  @apply text-lg font-bold text-gray-800 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2 mb-3;
+}
+
+.character-profile ul {
+  @apply list-disc list-inside space-y-1 text-gray-700 dark:text-gray-300;
+}
+
+/* Status indicator */
+.status-dot {
+  @apply w-2 h-2 rounded-full;
+}
+
+.status-dot.online {
+  @apply bg-green-500;
+}
+
+.status-dot.offline {
+  @apply bg-gray-400;
+}
+
+.status-dot.error {
+  @apply bg-red-500;
+}

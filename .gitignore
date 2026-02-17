@@ -1,0 +1,72 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-electron/
+release/
+out/
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+
+# Application state (user-specific, regenerated at runtime)
+.state/
+my-novel/.state/
+
+# Editor & IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# OS files
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Vite
+*.local
+
+# Electron-builder
+*.blockmap
+*.snap
+*.deb
+*.AppImage
+*.dmg
+*.exe
+*.msi
+*.rpm
+
+# Native module build artifacts
+build/
+prebuilds/
+
+# Test coverage
+coverage/
+
+# Temporary files
+_ul
+_ul-*
+*.tmp
+*.bak
+
+# Claude Code local settings
+.claude/settings.local.json

@@ -1,0 +1,313 @@
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import matter from 'gray-matter';
+import type { Character, Outline, ChapterSummary } from '../types/index.js';
+
+/**
+ * Manages all document operations for a novel project
+ */
+export class DocumentManager {
+  private projectPath: string;
+
+  constructor(projectPath: string) {
+    this.projectPath = projectPath;
+  }
+
+  /**
+   * Initialize project directory structure
+   */
+  async initializeProject(name: string): Promise<void> {
+    const dirs = [
+      'chapters',
+      'characters',
+      'references',
+      '.state',
+      '.state/vector-db',
+      '.state/knowledge-graph',
+      '.claude',
+      '.claude/skills',
+    ];
+
+    for (const dir of dirs) {
+      await fs.mkdir(path.join(this.projectPath, dir), { recursive: true });
+    }
+
+    // Create initial empty files
+    await this.writeFile('outline.md', `# ${name}\n\n## 故事大纲\n\n（待生成）`);
+    await this.writeFile('chapter_index.md', `# 章节目录\n\n（待生成）`);
+  }
+
+  // ============ Generic File Operations ============
+
+  async readFile(relativePath: string): Promise<string> {
+    const fullPath = path.join(this.projectPath, relativePath);
+    return fs.readFile(fullPath, 'utf-8');
+  }
+
+  async writeFile(relativePath: string, content: string): Promise<void> {
+    const fullPath = path.join(this.projectPath, relativePath);
+    const dir = path.dirname(fullPath);
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(fullPath, content, 'utf-8');
+  }
+
+  async fileExists(relativePath: string): Promise<boolean> {
+    try {
+      await fs.access(path.join(this.projectPath, relativePath));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async listFiles(relativePath: string, pattern?: RegExp): Promise<string[]> {
+    const fullPath = path.join(this.projectPath, relativePath);
+    try {
+      const entries = await fs.readdir(fullPath, { withFileTypes: true });
+      let files = entries.filter(e => e.isFile()).map(e => e.name);
+      if (pattern) {
+        files = files.filter(f => pattern.test(f));
+      }
+      return files;
+    } catch {
+      return [];
+    }
+  }
+
+  // ============ Outline Operations ============
+
+  async getOutline(): Promise<string> {
+    return this.readFile('outline.md');
+  }
+
+  async saveOutline(content: string): Promise<void> {
+    await this.writeFile('outline.md', content);
+  }
+
+  async getOutlineWithMetadata(): Promise<{ content: string; data: Record<string, unknown> }> {
+    const raw = await this.readFile('outline.md');
+    const { content, data } = matter(raw);
+    return { content, data };
+  }
+
+  // ============ Chapter Operations ============
+
+  async getChapter(index: number): Promise<string> {
+    const filename = this.formatChapterFilename(index);
+    return this.readFile(`chapters/${filename}`);
+  }
+
+  async saveChapter(index: number, content: string, title?: string): Promise<void> {
+    const filename = this.formatChapterFilename(index);
+    await this.writeFile(`chapters/${filename}`, content);
+
+    // Update chapter index
+    await this.updateChapterIndex(index, title);
+  }
+
+  async listChapters(): Promise<string[]> {
+    return this.listFiles('chapters', /^Chapter-\d+\.md$/);
+  }
+
+  async getChapterCount(): Promise<number> {
+    const chapters = await this.listChapters();
+    return chapters.length;
+  }
+
+  private formatChapterFilename(index: number): string {
+    return `Chapter-${String(index).padStart(2, '0')}.md`;
+  }
+
+  async updateChapterIndex(index: number, title?: string): Promise<void> {
+    const chapters = await this.listChapters();
+    const lines = ['# 章节目录\n'];
+
+    for (const chapter of chapters.sort()) {
+      const match = chapter.match(/Chapter-(\d+)\.md/);
+      if (match) {
+        const chapterIndex = parseInt(match[1], 10);
+        const chapterTitle = title && chapterIndex === index ? title : `第${chapterIndex}章`;
+        lines.push(`- [${chapterTitle}](chapters/${chapter})`);
+      }
+    }
+
+    await this.writeFile('chapter_index.md', lines.join('\n'));
+  }
+
+  // ============ Character Operations ============
+
+  async getCharacter(name: string): Promise<string> {
+    return this.readFile(`characters/${name}.md`);
+  }
+
+  async saveCharacter(name: string, content: string): Promise<void> {
+    await this.writeFile(`characters/${name}.md`, content);
+  }
+
+  async deleteCharacter(name: string): Promise<void> {
+    const fullPath = path.join(this.projectPath, `characters/${name}.md`);
+    await fs.unlink(fullPath);
+  }
+
+  async listCharacters(): Promise<string[]> {
+    const files = await this.listFiles('characters', /\.md$/);
+    return files.map(f => f.replace('.md', ''));
+  }
+
+  async getCharacters(): Promise<Character[]> {
+    const names = await this.listCharacters();
+    const characters: Character[] = [];
+
+    for (const name of names) {
+      try {
+        const content = await this.getCharacter(name);
+        const character = this.parseCharacterMarkdown(name, content);
+        if (character) {
+          characters.push(character);
+        }
+      } catch (error) {
+        console.error(`Failed to parse character ${name}:`, error);
+      }
+    }
+
+    return characters;
+  }
+
+  private parseCharacterMarkdown(name: string, content: string): Character | null {
+    const { data, content: body } = matter(content);
+
+    // Basic parsing - extract sections from markdown
+    const sections: Record<string, string> = {};
+    let currentSection = '';
+    const lines = body.split('\n');
+
+    for (const line of lines) {
+      if (line.startsWith('## ')) {
+        currentSection = line.replace('## ', '').trim();
+        sections[currentSection] = '';
+      } else if (currentSection) {
+        sections[currentSection] += line + '\n';
+      }
+    }
+
+    return {
+      id: data.id || name,
+      name,
+      basicInfo: {
+        age: data.age,
+        gender: data.gender,
+        occupation: data.occupation,
+        appearance: sections['外貌特征']?.trim(),
+      },
+      personality: {
+        core: sections['核心性格']?.trim() || '',
+        strengths: [],
+        weaknesses: [],
+        speechStyle: sections['说话方式']?.trim(),
+      },
+      background: sections['背景故事']?.trim() || '',
+      relationships: [],
+      arc: {
+        startState: '',
+        trigger: '',
+        endState: '',
+      },
+      role: sections['在故事中的作用']?.trim() || '',
+      appearances: data.appearances || [],
+      createdAt: data.createdAt ? new Date(data.createdAt) : new Date(),
+      updatedAt: data.updatedAt ? new Date(data.updatedAt) : new Date(),
+    };
+  }
+
+  // ============ Content Search & Analysis ============
+
+  async extractChapterSummary(index: number): Promise<ChapterSummary | null> {
+    try {
+      const content = await this.getChapter(index);
+      const { data } = matter(content);
+
+      // Extract title from first heading or metadata
+      const titleMatch = content.match(/^#\s+(.+)$/m);
+      const title = data.title || titleMatch?.[1] || `第${index}章`;
+
+      // Count words
+      const wordCount = this.countWords(content);
+
+      // Extract character names mentioned (simple approach)
+      const characters = await this.listCharacters();
+      const mentionedCharacters = characters.filter(c => content.includes(c));
+
+      return {
+        index,
+        title,
+        summary: data.summary || '',
+        wordCount,
+        characters: mentionedCharacters,
+        keyEvents: data.keyEvents || [],
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  async getRecentChapterSummaries(count: number): Promise<ChapterSummary[]> {
+    const chapterCount = await this.getChapterCount();
+    const summaries: ChapterSummary[] = [];
+
+    const start = Math.max(1, chapterCount - count + 1);
+    for (let i = start; i <= chapterCount; i++) {
+      const summary = await this.extractChapterSummary(i);
+      if (summary) {
+        summaries.push(summary);
+      }
+    }
+
+    return summaries;
+  }
+
+  private countWords(text: string): number {
+    // Chinese characters count as individual words
+    const chineseChars = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
+    // English words
+    const englishWords = (text.match(/[a-zA-Z]+/g) || []).length;
+    return chineseChars + englishWords;
+  }
+
+  // ============ Project State ============
+
+  async getProjectPath(): string {
+    return this.projectPath;
+  }
+
+  async getContent(location: { type: string; identifier: string | number }): Promise<string> {
+    switch (location.type) {
+      case 'chapter':
+        return this.getChapter(location.identifier as number);
+      case 'character':
+        return this.getCharacter(location.identifier as string);
+      case 'outline':
+        return this.getOutline();
+      default:
+        throw new Error(`Unknown content type: ${location.type}`);
+    }
+  }
+
+  async updateContent(
+    location: { type: string; identifier: string | number },
+    content: string
+  ): Promise<void> {
+    switch (location.type) {
+      case 'chapter':
+        await this.saveChapter(location.identifier as number, content);
+        break;
+      case 'character':
+        await this.saveCharacter(location.identifier as string, content);
+        break;
+      case 'outline':
+        await this.saveOutline(content);
+        break;
+      default:
+        throw new Error(`Unknown content type: ${location.type}`);
+    }
+  }
+}
