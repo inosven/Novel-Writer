@@ -186,11 +186,7 @@ ${writingMethod ? `【写作方法】\n${writingMethod}\n` : ''}
 ${outputStyle ? `【文风规范】\n${outputStyle}\n` : ''}
 ${chapterExample ? `【风格示例 - 仅参考文笔风格、叙事节奏、对话方式，不要使用示例中的角色或情节】\n${chapterExample.substring(0, 1000)}...\n【重要：以上仅为风格参考，写作内容必须严格基于本章大纲和已有角色设定】\n` : ''}
 
-【Ground Truth参考】
-${task.groundTruthContext || '无特定历史参考'}
-
-【风格参考】
-${task.styleContext || '按技能包风格'}
+${task.styleContext ? `【风格参考】\n${task.styleContext}\n` : ''}
 
 写作要求：
 1. 严格按照本章大纲推进情节，只使用大纲中指定的角色
@@ -200,6 +196,7 @@ ${task.styleContext || '按技能包风格'}
 5. 新引入的人物/地点/事件请用双括号标记
 6. 不要使用任何风格示例中的角色名或情节，只学习其写作风格
 
+${(task as any).previousChapterEnding ? `【上一章结尾 - 请自然衔接】\n...${(task as any).previousChapterEnding}\n` : ''}
 请直接开始写作：
 `;
 
@@ -329,38 +326,51 @@ ${outputStyle ? `【风格规范】\n${outputStyle}\n` : ''}
   }
 
   /**
-   * Build context for chapter writing
+   * Build context for chapter writing.
+   * Uses: story summary + chapter summaries + RAG + previous chapter ending.
+   * Total context stays bounded regardless of novel length.
    */
   private buildChapterContext(context: AgentInput['context'] | undefined, chapterIndex: number): string {
     const parts: string[] = [];
 
+    // 1. Story-level context (story summary + premise) from outline field
     if (context?.outline) {
-      parts.push('【故事大纲摘要】');
-      // Extract relevant portion of outline
-      parts.push(context.outline.substring(0, 1500));
+      parts.push(context.outline);
       parts.push('');
     }
 
-    if (context?.characters && context.characters.length > 0) {
-      parts.push('【主要人物】');
-      for (const char of context.characters.slice(0, 5)) {
-        parts.push(`- ${char.name}（${char.basicInfo.occupation || ''}）: ${char.personality.core}`);
-      }
-      parts.push('');
-    }
-
+    // 2. All previous chapter summaries (each ~150 chars)
     if (context?.previousChapters && context.previousChapters.length > 0) {
-      parts.push('【前情提要】');
-      for (const chapter of context.previousChapters.slice(-3)) {
-        parts.push(`第${chapter.index}章: ${chapter.summary}`);
+      parts.push('【各章摘要】');
+      for (const chapter of context.previousChapters) {
+        const events = chapter.keyEvents?.length
+          ? ` [${chapter.keyEvents.join('、')}]`
+          : '';
+        parts.push(`第${chapter.index}章「${chapter.title}」: ${chapter.summary}${events}`);
       }
       parts.push('');
     }
 
+    // 3. Relevant characters (up to 5)
+    if (context?.characters && context.characters.length > 0) {
+      parts.push('【本章出场人物】');
+      for (const char of context.characters.slice(0, 5)) {
+        if (typeof char === 'object' && 'basicInfo' in char) {
+          parts.push(`- ${char.name}（${char.basicInfo?.occupation || ''}）: ${char.personality?.core || ''}`);
+        } else {
+          // char might be { name, profile } format from getRelevantCharacters
+          const c = char as any;
+          parts.push(`- ${c.name}: ${(c.profile || '').substring(0, 200)}`);
+        }
+      }
+      parts.push('');
+    }
+
+    // 4. RAG retrieval results (relevant passages from any chapter)
     if (context?.relevantMemory && context.relevantMemory.length > 0) {
-      parts.push('【相关内容检索】');
-      for (const memory of context.relevantMemory.slice(0, 3)) {
-        parts.push(`- ${memory.content.substring(0, 200)}...`);
+      parts.push('【相关原文片段（RAG检索）】');
+      for (const memory of context.relevantMemory.slice(0, 5)) {
+        parts.push(`- ${memory.content.substring(0, 300)}`);
       }
       parts.push('');
     }

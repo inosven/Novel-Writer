@@ -353,30 +353,26 @@ export class Orchestrator {
    * Write a chapter
    */
   async writeChapter(chapterIndex: number): Promise<WriteChapterResult> {
-    // Get context
-    const outlineContent = await this.documents.getOutline();
+    // Get outline context
     const chapterOutline = await this.outline.getChapterOutline(chapterIndex);
-    const previousChapters = await this.getPreviousChaptersContext(chapterIndex);
     const relevantCharacters = await this.getRelevantCharacters(chapterOutline);
 
-    // Get references from memory
-    const references = await this.memory.search(
-      chapterOutline?.summary || '',
-      { limit: 5, type: 'reference' }
-    );
+    // Build smart context: summaries + RAG + ending (instead of full chapters)
+    const smartContext = await this.buildSmartContext(chapterIndex, chapterOutline);
 
     // Writer generates chapter
     const writerResult = await this.writerAgent.execute({
       task: {
         type: 'chapter',
         chapterIndex,
-        outline: chapterOutline,
+        chapterOutline: chapterOutline?.summary || '',
+        ...smartContext.taskExtras,
       },
       context: {
-        outline: outlineContent,
-        previousChapters: previousChapters.map(c => c.content).join('\n\n---\n\n'),
+        outline: smartContext.outlineContext,
+        previousChapters: smartContext.chapterSummaries,
         characters: relevantCharacters,
-        references: references.ragResults.map(r => r.content),
+        relevantMemory: smartContext.ragResults,
       },
       skill: this.currentSkill || undefined,
     });
@@ -404,7 +400,7 @@ export class Orchestrator {
     // Save chapter
     await this.documents.saveChapter(chapterIndex, chapterContent);
 
-    // Update memory system
+    // Update memory system (RAG index)
     await this.memory.addContent({
       text: chapterContent,
       source: `chapter_${chapterIndex}`,
@@ -412,10 +408,12 @@ export class Orchestrator {
       chapterIndex,
     });
 
+    // Generate and save chapter summary + update story summary
+    await this.generateAndSaveSummary(chapterIndex, chapterContent, chapterOutline);
+
     // Update state
     await this.state.updateChapterProgress(chapterIndex, 'completed');
 
-    // Calculate word count
     const wordCount = chapterContent.length;
 
     return {
@@ -424,6 +422,156 @@ export class Orchestrator {
       finalContent: chapterContent,
       wordCount,
     };
+  }
+
+  /**
+   * Build smart context for chapter writing.
+   * Uses: story summary + all chapter summaries + RAG + previous chapter ending.
+   * Total context stays bounded regardless of novel length.
+   */
+  private async buildSmartContext(
+    chapterIndex: number,
+    chapterOutline: ChapterOutline | null
+  ) {
+    // 1. Story-level summary (~300 chars)
+    const storySummary = await this.documents.getStorySummary();
+
+    // 2. All chapter summaries (each ~100-200 chars)
+    const allSummaries = await this.documents.getAllChapterSummariesOrdered();
+    const summariesBeforeCurrent = allSummaries.filter(s => s.index < chapterIndex);
+
+    // 3. RAG: semantic search for relevant passages from any chapter
+    const searchQuery = chapterOutline?.summary || '';
+    const ragResults = searchQuery
+      ? (await this.memory.search(searchQuery, { limit: 5 })).ragResults
+      : [];
+
+    // 4. Previous chapter ending (~500 chars, for seamless transition)
+    const prevEnding = chapterIndex > 1
+      ? await this.documents.getChapterEnding(chapterIndex - 1, 500)
+      : '';
+
+    // 5. Outline: story premise + this chapter's outline (not full outline)
+    const outlineMeta = await this.documents.getOutlineWithMetadata();
+    // Extract premise/theme section (first ~500 chars)
+    const outlinePremise = outlineMeta.content.substring(0, 500);
+
+    // Compose outline context
+    let outlineContext = '';
+    if (storySummary) {
+      outlineContext += `【故事全局摘要】\n${storySummary}\n\n`;
+    }
+    outlineContext += `【故事设定】\n${outlinePremise}\n`;
+
+    return {
+      outlineContext,
+      chapterSummaries: summariesBeforeCurrent,
+      ragResults,
+      taskExtras: {
+        previousChapterEnding: prevEnding,
+        groundTruthContext: ragResults.map(r => r.content).join('\n'),
+      },
+    };
+  }
+
+  /**
+   * After writing a chapter, generate a summary and update the story summary.
+   */
+  private async generateAndSaveSummary(
+    chapterIndex: number,
+    chapterContent: string,
+    chapterOutline: ChapterOutline | null
+  ): Promise<void> {
+    try {
+      // Generate chapter summary via LLM
+      const summaryPrompt = `请为以下章节内容生成一个简洁的摘要（150-200字），包含：主要情节、关键事件、出场角色。
+
+【章节内容】
+${chapterContent.substring(0, 6000)}
+
+请以JSON格式输出：
+{
+  "summary": "章节摘要文本",
+  "keyEvents": ["关键事件1", "关键事件2"],
+  "characters": ["角色1", "角色2"]
+}`;
+
+      const summaryResult = await this.llm.complete(summaryPrompt, {
+        systemPrompt: '你是一个精确的文本摘要助手。只输出JSON，不要其他内容。',
+        maxTokens: 500,
+        temperature: 0.3,
+      });
+
+      // Parse summary
+      const parsed = this.parseSummaryJSON(summaryResult);
+
+      const chapterSummary = {
+        index: chapterIndex,
+        title: chapterOutline?.title || `第${chapterIndex}章`,
+        summary: parsed.summary || `第${chapterIndex}章内容摘要`,
+        wordCount: chapterContent.length,
+        characters: parsed.characters || [],
+        keyEvents: parsed.keyEvents || [],
+      };
+
+      await this.documents.saveChapterSummary(chapterIndex, chapterSummary);
+      console.log(`[Orchestrator] Chapter ${chapterIndex} summary saved (${chapterSummary.summary.length} chars)`);
+
+      // Update story-level summary
+      await this.updateStorySummary(chapterIndex);
+    } catch (error) {
+      console.error(`[Orchestrator] Failed to generate summary for chapter ${chapterIndex}:`, error);
+      // Non-fatal: writing still succeeds even if summary generation fails
+    }
+  }
+
+  /**
+   * Update the story-level summary incorporating the latest chapter.
+   */
+  private async updateStorySummary(upToChapter: number): Promise<void> {
+    const allSummaries = await this.documents.getAllChapterSummariesOrdered();
+    const existing = await this.documents.getStorySummary();
+
+    // Build a concise chapter list for the LLM
+    const chapterList = allSummaries
+      .map(s => `第${s.index}章「${s.title}」: ${s.summary}`)
+      .join('\n');
+
+    const prompt = `根据以下各章摘要，生成一段整体故事摘要（200-300字），概括故事到目前为止的主线发展、核心冲突和人物关系变化。
+
+${existing ? `【之前的故事摘要】\n${existing}\n\n` : ''}【各章摘要】
+${chapterList}
+
+请直接输出摘要文本，不需要标题或格式。`;
+
+    const storySummary = await this.llm.complete(prompt, {
+      systemPrompt: '你是一个精确的文本摘要助手。直接输出摘要文本。',
+      maxTokens: 500,
+      temperature: 0.3,
+    });
+
+    await this.documents.saveStorySummary(storySummary.trim());
+    console.log(`[Orchestrator] Story summary updated (${storySummary.trim().length} chars)`);
+  }
+
+  private parseSummaryJSON(raw: string): { summary?: string; keyEvents?: string[]; characters?: string[] } {
+    try {
+      // Try code block first
+      const codeBlock = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (codeBlock) return JSON.parse(codeBlock[1].trim());
+
+      // Try raw JSON
+      const firstBrace = raw.indexOf('{');
+      const lastBrace = raw.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace > firstBrace) {
+        return JSON.parse(raw.substring(firstBrace, lastBrace + 1));
+      }
+
+      // Fallback: treat entire response as summary text
+      return { summary: raw.trim() };
+    } catch {
+      return { summary: raw.trim() };
+    }
   }
 
   /**

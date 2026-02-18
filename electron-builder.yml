@@ -49,13 +49,13 @@ mac:
       arch:
         - x64
         - arm64
-  icon: resources/icon.icns
+  # icon: resources/icon.icns  # Uncomment when icon is available
   category: public.app-category.productivity
   artifactName: ${productName}-${version}-mac-${arch}.${ext}
   hardenedRuntime: true
   gatekeeperAssess: false
-  entitlements: resources/entitlements.mac.plist
-  entitlementsInherit: resources/entitlements.mac.plist
+  # entitlements: resources/entitlements.mac.plist  # Uncomment when entitlements file is available
+  # entitlementsInherit: resources/entitlements.mac.plist
 
 dmg:
   contents:

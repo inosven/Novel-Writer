@@ -38,6 +38,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('planning:finalize', sessionId, outline, characters),
     getSession: () => ipcRenderer.invoke('planning:get-session'),
     saveSession: (session: any) => ipcRenderer.invoke('planning:save-session', session),
+    listHistory: () => ipcRenderer.invoke('planning:list-history'),
+    restoreFromHistory: (sessionId: string) => ipcRenderer.invoke('planning:restore-from-history', sessionId),
+    deleteHistory: (sessionId: string) => ipcRenderer.invoke('planning:delete-history', sessionId),
   },
 
   // ============ Writing API ============
@@ -137,6 +140,9 @@ export interface ElectronAPI {
     finalize: (sessionId: string, outline: string, characters: any[]) => Promise<void>;
     getSession: () => Promise<any>;
     saveSession: (session: any) => Promise<void>;
+    listHistory: () => Promise<any[]>;
+    restoreFromHistory: (sessionId: string) => Promise<any>;
+    deleteHistory: (sessionId: string) => Promise<void>;
   };
   writing: {
     writeChapter: (chapterIndex: number) => Promise<any>;

@@ -1,3 +1,4 @@
+import * as path from 'path';
 import type {
   MemorySearchResult,
   Tag,
@@ -42,14 +43,14 @@ export class MemorySystem {
 
     // Initialize components
     this.rag = new LanceDBAdapter(
-      `${config.projectPath}/.state/vector-db`,
+      path.join(config.projectPath, '.state', 'vector-db'),
       this.embeddingService
     );
 
-    this.tags = new TagManager(`${config.projectPath}/.state/tags.db`);
+    this.tags = new TagManager(path.join(config.projectPath, '.state', 'tags.db'));
 
     this.graph = new KnowledgeGraph({
-      persistPath: `${config.projectPath}/.state/knowledge-graph/graph.json`,
+      persistPath: path.join(config.projectPath, '.state', 'knowledge-graph', 'graph.json'),
     });
   }
 

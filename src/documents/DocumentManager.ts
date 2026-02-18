@@ -265,6 +265,87 @@ export class DocumentManager {
     return summaries;
   }
 
+  // ============ Chapter Summary Persistence ============
+
+  /**
+   * Save an LLM-generated summary for a chapter.
+   * Stored in .state/chapter-summaries.json
+   */
+  async saveChapterSummary(index: number, summary: ChapterSummary): Promise<void> {
+    const summaries = await this.loadAllChapterSummaries();
+    summaries[index] = summary;
+    await this.writeFile('.state/chapter-summaries.json', JSON.stringify(summaries, null, 2));
+  }
+
+  /**
+   * Load the LLM-generated summary for a specific chapter.
+   */
+  async getChapterSummaryFromStore(index: number): Promise<ChapterSummary | null> {
+    const summaries = await this.loadAllChapterSummaries();
+    return summaries[index] || null;
+  }
+
+  /**
+   * Load all LLM-generated chapter summaries.
+   */
+  async loadAllChapterSummaries(): Promise<Record<number, ChapterSummary>> {
+    try {
+      const raw = await this.readFile('.state/chapter-summaries.json');
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  }
+
+  /**
+   * Get all chapter summaries in order, for use as context.
+   */
+  async getAllChapterSummariesOrdered(): Promise<ChapterSummary[]> {
+    const map = await this.loadAllChapterSummaries();
+    return Object.values(map).sort((a, b) => a.index - b.index);
+  }
+
+  /**
+   * Save the running story-level summary.
+   * This is a high-level summary of the entire story so far.
+   */
+  async saveStorySummary(summary: string): Promise<void> {
+    await this.writeFile('.state/story-summary.md', summary);
+  }
+
+  /**
+   * Load the running story-level summary.
+   */
+  async getStorySummary(): Promise<string> {
+    try {
+      return await this.readFile('.state/story-summary.md');
+    } catch {
+      return '';
+    }
+  }
+
+  /**
+   * Get the last N characters (text) of a chapter, for transition context.
+   */
+  async getChapterEnding(index: number, charCount = 500): Promise<string> {
+    try {
+      const content = await this.getChapter(index);
+      // Strip front matter
+      const { content: body } = matter(content);
+      const trimmed = body.trim();
+      if (trimmed.length <= charCount) return trimmed;
+      // Find a sentence break near the cut point
+      const cutRegion = trimmed.substring(trimmed.length - charCount - 100, trimmed.length);
+      const sentenceBreak = cutRegion.search(/[。！？\.\!\?]\s*/);
+      if (sentenceBreak !== -1) {
+        return cutRegion.substring(sentenceBreak + 1).trim();
+      }
+      return trimmed.substring(trimmed.length - charCount);
+    } catch {
+      return '';
+    }
+  }
+
   private countWords(text: string): number {
     // Chinese characters count as individual words
     const chineseChars = (text.match(/[\u4e00-\u9fa5]/g) || []).length;

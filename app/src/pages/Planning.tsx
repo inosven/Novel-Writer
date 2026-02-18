@@ -23,6 +23,16 @@ interface LLMConfig {
   ollama?: { model: string; host: string };
 }
 
+interface HistoryEntry {
+  id: string;
+  phase: string;
+  userIdea: string;
+  backedUpAt: string;
+  messageCount: number;
+  hasOutline: boolean;
+  characterCount: number;
+}
+
 export default function Planning() {
   const { projectPath } = useProjectStore();
   const [session, setSession] = useState<PlanningSession | null>(null);
@@ -31,6 +41,8 @@ export default function Planning() {
   const [streamingContent, setStreamingContent] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [currentModel, setCurrentModel] = useState<string>('未知');
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyList, setHistoryList] = useState<HistoryEntry[]>([]);
 
   const phases = [
     { key: 'collecting', label: '收集想法', icon: '💡' },
@@ -59,6 +71,62 @@ export default function Planning() {
       console.log(`[Planning] Current model: ${provider}: ${model}`);
     } catch (error) {
       console.error('Failed to load current model:', error);
+    }
+  };
+
+  const loadHistory = async () => {
+    if (!window.electronAPI) return;
+    try {
+      const list = await window.electronAPI.planning.listHistory();
+      setHistoryList(list || []);
+    } catch (error) {
+      console.error('Failed to load history:', error);
+    }
+  };
+
+  const handleRestoreFromHistory = async (historySessionId: string) => {
+    if (!window.electronAPI) return;
+    if (!confirm('确定要恢复这个历史会话吗？当前会话将被自动备份。')) return;
+
+    try {
+      const restored = await window.electronAPI.planning.restoreFromHistory(historySessionId);
+      if (restored && restored.id) {
+        const validMessages = Array.isArray(restored.messages)
+          ? restored.messages.filter((msg: any) =>
+              msg && typeof msg.content === 'string' && typeof msg.role === 'string'
+            )
+          : [];
+
+        setSession({
+          id: String(restored.id),
+          phase: restored.phase || 'collecting',
+          messages: validMessages.length > 0 ? validMessages : [{
+            id: '1',
+            role: 'assistant',
+            content: '(已从历史记录恢复，但消息内容为空)',
+            timestamp: new Date(),
+          }],
+          outlineDraft: restored.outlineDraft,
+          characterSuggestions: restored.characterSuggestions,
+        });
+        setShowHistory(false);
+        // Refresh history list
+        await loadHistory();
+      }
+    } catch (error) {
+      console.error('Failed to restore session:', error);
+      alert('恢复失败: ' + (error as Error).message);
+    }
+  };
+
+  const handleDeleteHistory = async (historySessionId: string) => {
+    if (!window.electronAPI) return;
+    if (!confirm('确定要删除这条历史记录吗？')) return;
+    try {
+      await window.electronAPI.planning.deleteHistory(historySessionId);
+      await loadHistory();
+    } catch (error) {
+      console.error('Failed to delete history:', error);
     }
   };
 
@@ -404,20 +472,33 @@ export default function Planning() {
   };
 
   const handleReset = async () => {
-    if (confirm('确定要重新开始规划吗？当前的进度将会丢失。')) {
+    if (confirm('确定要重新开始规划吗？当前的会话将自动备份到历史记录。')) {
       console.log('[Planning] Resetting session...');
 
-      // Reset all states first
+      // Save the full current session (with messages) before clearing,
+      // so the backup includes the latest messages from frontend state
+      if (window.electronAPI && session) {
+        try {
+          await window.electronAPI.planning.saveSession({
+            ...session,
+            userIdea: session.messages?.find(m => m.role === 'user')?.content || '',
+          });
+        } catch (e) {
+          console.log('[Planning] Failed to save session before reset:', e);
+        }
+      }
+
+      // Reset all states
       setIsLoading(false);
       setStreamingContent('');
       setInput('');
       setSession(null);
 
-      // Clear persistent storage by saving null/empty session
+      // Clear persistent storage (this triggers backup in backend)
       if (window.electronAPI) {
         try {
           await window.electronAPI.planning.saveSession(null);
-          console.log('[Planning] Session storage cleared');
+          console.log('[Planning] Session storage cleared (backup created)');
         } catch (e) {
           console.log('[Planning] Failed to clear session storage:', e);
         }
@@ -586,6 +667,67 @@ export default function Planning() {
               >
                 🔄 重新开始
               </button>
+              <button
+                onClick={() => { setShowHistory(!showHistory); if (!showHistory) loadHistory(); }}
+                disabled={isLoading}
+                className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700"
+              >
+                📂 历史记录
+              </button>
+            </div>
+          )}
+
+          {/* History Panel */}
+          {showHistory && (
+            <div className="mb-3 bg-gray-50 dark:bg-gray-900 rounded-lg p-3 max-h-60 overflow-y-auto border border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">📂 历史会话</span>
+                <button
+                  onClick={() => setShowHistory(false)}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-sm"
+                >
+                  关闭
+                </button>
+              </div>
+              {historyList.length === 0 ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400">暂无历史记录</p>
+              ) : (
+                <div className="space-y-2">
+                  {historyList.map((entry) => (
+                    <div
+                      key={entry.id}
+                      className="flex items-center justify-between bg-white dark:bg-gray-800 rounded p-2 text-sm border border-gray-100 dark:border-gray-700"
+                    >
+                      <div className="flex-1 min-w-0 mr-2">
+                        <div className="font-medium text-gray-800 dark:text-gray-200 truncate">
+                          {entry.userIdea || `会话 ${entry.id.slice(0, 8)}`}
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 flex flex-wrap gap-2 mt-0.5">
+                          <span>{new Date(entry.backedUpAt).toLocaleString()}</span>
+                          <span>{entry.messageCount} 条消息</span>
+                          {entry.hasOutline && <span>有大纲</span>}
+                          {entry.characterCount > 0 && <span>{entry.characterCount} 个角色</span>}
+                          <span className="capitalize">{entry.phase}</span>
+                        </div>
+                      </div>
+                      <div className="flex gap-1 shrink-0">
+                        <button
+                          onClick={() => handleRestoreFromHistory(entry.id)}
+                          className="px-2 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600"
+                        >
+                          恢复
+                        </button>
+                        <button
+                          onClick={() => handleDeleteHistory(entry.id)}
+                          className="px-2 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600"
+                        >
+                          删除
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

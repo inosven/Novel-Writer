@@ -11,6 +11,54 @@ const sessionStore = new Store({
   projectName: 'novel-writer',
 });
 
+// Session history/backup store
+const historyStore = new Store({
+  name: 'novelwriter-planning-history',
+  projectName: 'novel-writer',
+});
+
+const MAX_HISTORY = 20;
+
+/**
+ * Backup the current session to history before it gets overwritten or cleared.
+ * Only backs up sessions that have meaningful content (more than the welcome message).
+ */
+function backupCurrentSession() {
+  try {
+    const current = sessionStore.get('session') as any;
+    if (!current || !current.id) return;
+
+    // Only backup if session has user content
+    const hasUserMessages = Array.isArray(current.messages) &&
+      current.messages.some((m: any) => m.role === 'user');
+    const hasOutline = !!current.outlineDraft;
+    const hasAnswers = current.answers && Object.keys(current.answers).length > 0;
+
+    if (!hasUserMessages && !hasOutline && !hasAnswers) return;
+
+    const history: any[] = (historyStore.get('sessions') as any[]) || [];
+
+    // Don't duplicate if the same session ID already exists in history
+    if (history.some((h: any) => h.id === current.id)) return;
+
+    // Add timestamp for display
+    current.backedUpAt = new Date().toISOString();
+
+    // Add to front of history
+    history.unshift(current);
+
+    // Keep only the most recent sessions
+    if (history.length > MAX_HISTORY) {
+      history.length = MAX_HISTORY;
+    }
+
+    historyStore.set('sessions', history);
+    console.log(`[Planning] Backed up session ${current.id} to history (${history.length} total)`);
+  } catch (error) {
+    console.error('[Planning] Failed to backup session:', error);
+  }
+}
+
 export function setupPlanningIPC(ipcMain: IpcMain) {
   // Start planning
   ipcMain.handle('planning:start', async (_, idea: string) => {
@@ -18,6 +66,9 @@ export function setupPlanningIPC(ipcMain: IpcMain) {
     if (!orchestrator) {
       throw new Error('No project open');
     }
+
+    // Backup current session before starting a new one
+    backupCurrentSession();
 
     const session = await orchestrator.startPlanning(idea);
     OrchestratorService.setPlanningSession(session);
@@ -198,12 +249,57 @@ export function setupPlanningIPC(ipcMain: IpcMain) {
     console.log('[planning:save-session] Session userIdea:', session?.userIdea?.substring(0, 50));
 
     if (session === null || session === undefined) {
-      // Clear session
+      // Backup before clearing
+      backupCurrentSession();
       OrchestratorService.setPlanningSession(null);
       sessionStore.delete('session');
     } else {
       OrchestratorService.setPlanningSession(session);
       sessionStore.set('session', session);
     }
+  });
+
+  // ============ Session History / Backup ============
+
+  // List all backed-up sessions
+  ipcMain.handle('planning:list-history', async () => {
+    const history: any[] = (historyStore.get('sessions') as any[]) || [];
+    // Return summary info only (not full messages) for the list view
+    return history.map((s: any) => ({
+      id: s.id,
+      phase: s.phase,
+      userIdea: s.userIdea || '',
+      backedUpAt: s.backedUpAt,
+      messageCount: Array.isArray(s.messages) ? s.messages.length : 0,
+      hasOutline: !!s.outlineDraft,
+      characterCount: Array.isArray(s.characterSuggestions) ? s.characterSuggestions.length : 0,
+    }));
+  });
+
+  // Restore a session from history
+  ipcMain.handle('planning:restore-from-history', async (_, historySessionId: string) => {
+    const history: any[] = (historyStore.get('sessions') as any[]) || [];
+    const target = history.find((s: any) => s.id === historySessionId);
+    if (!target) {
+      throw new Error('History session not found');
+    }
+
+    // Backup current session before restoring
+    backupCurrentSession();
+
+    // Restore the target session
+    OrchestratorService.setPlanningSession(target);
+    sessionStore.set('session', target);
+
+    console.log(`[Planning] Restored session ${historySessionId} from history`);
+    return target;
+  });
+
+  // Delete a session from history
+  ipcMain.handle('planning:delete-history', async (_, historySessionId: string) => {
+    const history: any[] = (historyStore.get('sessions') as any[]) || [];
+    const filtered = history.filter((s: any) => s.id !== historySessionId);
+    historyStore.set('sessions', filtered);
+    console.log(`[Planning] Deleted session ${historySessionId} from history`);
   });
 }
