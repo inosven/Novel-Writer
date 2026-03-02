@@ -1,3 +1,10 @@
+/**
+ * @module src/memory/graph/KnowledgeGraph
+ * @description 知识图谱引擎。
+ * 存储实体（人物、地点、事件）和关系，支持事实验证和时间线查询。
+ * 数据持久化到 .state/knowledge-graph/graph.json。
+ * ReviewerAgent 用它来检测内容中的事实矛盾。
+ */
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import type { Entity, Relationship } from '../../types/index.js';

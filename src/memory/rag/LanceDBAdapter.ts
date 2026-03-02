@@ -1,3 +1,9 @@
+/**
+ * @module src/memory/rag/LanceDBAdapter
+ * @description LanceDB 向量数据库适配器。
+ * 将文本分块嵌入后存储到本地 LanceDB，支持语义相似度搜索。
+ * 用于章节写作时检索相关上下文（跨章节相似段落）。
+ */
 import * as lancedb from '@lancedb/lancedb';
 import * as fs from 'fs/promises';
 import { v4 as uuidv4 } from 'uuid';
@@ -26,6 +32,9 @@ export class LanceDBAdapter {
     // Ensure directory exists
     await fs.mkdir(this.dbPath, { recursive: true });
 
+    // Auto-detect embedding dimension before creating table
+    await this.embeddingService.detectDimension();
+
     // Connect to LanceDB
     this.db = await lancedb.connect(this.dbPath);
 
@@ -34,6 +43,22 @@ export class LanceDBAdapter {
 
     if (tables.includes(this.tableName)) {
       this.table = await this.db.openTable(this.tableName);
+
+      // Check if existing table dimension matches current embedding dimension
+      try {
+        const rows = await this.table.query().limit(1).toArray();
+        if (rows.length > 0 && rows[0].vector) {
+          const existingDim = rows[0].vector.length;
+          const expectedDim = this.embeddingService.dimension;
+          if (existingDim !== expectedDim) {
+            console.warn(`[LanceDB] Dimension mismatch: table has ${existingDim}, embedding is ${expectedDim}. Rebuilding table.`);
+            await this.db.dropTable(this.tableName);
+            await this.createTable();
+          }
+        }
+      } catch {
+        // If we can't check, just continue with existing table
+      }
     } else {
       // Create table with initial schema
       await this.createTable();

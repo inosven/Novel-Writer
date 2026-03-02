@@ -1,3 +1,10 @@
+/**
+ * @module src/core/state/StateManager
+ * @description 项目状态管理器。
+ * 持久化项目进度（当前阶段、已完成章节、草稿内容）、Agent 任务队列、
+ * 审稿历史、会话记录和检查点。支持 30 秒自动保存和断点恢复。
+ * 数据存储在 .state/progress.json。
+ */
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
@@ -33,9 +40,10 @@ export class StateManager {
     try {
       const data = await fs.readFile(this.statePath, 'utf-8');
       this.state = this.parseState(JSON.parse(data));
-      console.log(`Loaded state from ${this.statePath}`);
+      console.log(`[StateManager] Loaded state from ${this.statePath}`);
     } catch {
       // Create new state
+      console.log(`[StateManager] No existing state, creating initial state`);
       this.state = this.createInitialState();
       await this.save();
     }
@@ -420,6 +428,7 @@ export class StateManager {
    * Create a checkpoint
    */
   async createCheckpoint(name: string, description: string): Promise<string> {
+    console.log(`[StateManager] createCheckpoint: "${name}"`);
     const checkpoint: Checkpoint = {
       id: uuidv4(),
       name,
@@ -457,6 +466,7 @@ export class StateManager {
    * Restore from checkpoint
    */
   async restoreCheckpoint(checkpointId: string): Promise<void> {
+    console.log(`[StateManager] restoreCheckpoint: id=${checkpointId}`);
     const checkpoint = this.state.checkpoints.find(c => c.id === checkpointId);
 
     if (!checkpoint) {

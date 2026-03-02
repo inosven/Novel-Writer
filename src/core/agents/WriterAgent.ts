@@ -1,3 +1,10 @@
+/**
+ * @module src/core/agents/WriterAgent
+ * @description 写作 Agent — 负责所有内容生成。
+ * 支持任务类型：大纲生成(outline)、角色创建(character)、章节写作(chapter)、
+ * 续写(continue)、场景扩写(scene)。
+ * 使用 Skill 配置调整文风，通过上下文窗口（摘要+RAG）保持长篇一致性。
+ */
 import { BaseAgent, type AgentInput, type AgentOutput } from './BaseAgent.js';
 import type { LLMProvider, SkillConfig, Entity } from '../../types/index.js';
 
@@ -12,7 +19,7 @@ export class WriterAgent extends BaseAgent {
   }
 
   private buildSystemPrompt(): string {
-    return `你是一位经验丰富的小说作家，专注于创作引人入胜的故事。
+    return `你是一位经验丰富的小说作家，擅长历史悬疑与权谋类小说，文风深受金庸、马伯庸影响。
 
 你的核心能力：
 1. 大纲生成 - 根据用户想法创建完整的故事大纲
@@ -20,11 +27,19 @@ export class WriterAgent extends BaseAgent {
 3. 章节写作 - 按大纲逐章创作，保持情节连贯
 4. 续写 - 根据给定开头推断风格和设定，自然续写
 
+文风要求（核心）：
+- 悬疑氛围：善用环境烘托（雨夜、残烛、远处犬吠），以景写情，以物暗示危机
+- 节奏控制：长短句交替。紧张处用短句、断句，制造窒息感；舒缓处用长句铺陈
+- 感官沉浸：调动五感（冷风刺骨、血腥气弥漫、刀鞘碰撞声、昏暗灯火下的人影），让读者身临其境
+- 悬念铺设：先果后因，延迟揭示关键信息；章末设钩子。不要急于解释，让读者带着疑问往下读
+- 对话风格：言语暗藏机锋，话中有话。人物说半句留半句，用沉默和表情补全意思
+- 人物刻画：通过微表情、小动作（攥紧茶杯、眼神一闪、手指微颤）展现内心，少用心理独白直说
+- 避免说教和旁白式总结，让情节和细节自己说话
+
 写作原则：
 - 严格遵循大纲和人物设定
 - 保持人物行为符合其性格
 - 注意情节的因果逻辑
-- 营造沉浸感的场景描写
 - 控制节奏，张弛有度
 
 特殊标记：
@@ -196,8 +211,15 @@ ${task.styleContext ? `【风格参考】\n${task.styleContext}\n` : ''}
 5. 新引入的人物/地点/事件请用双括号标记
 6. 不要使用任何风格示例中的角色名或情节，只学习其写作风格
 
+文风要求（重要）：
+- 开篇即入戏：不要从平淡叙述开始，用一个动作、一声异响、一个反常的细节直接拉入情境
+- 环境即悬疑：天气、光线、声音都是叙事工具。"廊下灯笼被风吹灭了两盏"比"气氛很紧张"好一万倍
+- 对话要有锋芒：每句台词都有潜台词，角色之间的对话是暗中交锋，不是平铺直叙地交换信息
+- 段末设钩：每隔几段就埋一个小悬念或不安的暗示，让读者欲罢不能
+- 绝不直白说破：用"他的手微微一顿"代替"他心中一惊"，用细节传递情绪
+
 ${(task as any).previousChapterEnding ? `【上一章结尾 - 请自然衔接】\n...${(task as any).previousChapterEnding}\n` : ''}
-请直接开始写作：
+请直接开始写作（不要输出章节标题，直接写正文）：
 `;
 
     const content = await this.complete(prompt, { maxTokens: 8000, temperature: 0.8 });

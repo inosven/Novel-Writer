@@ -1,3 +1,16 @@
+/**
+ * @module src/core/orchestrator/Orchestrator
+ * @description 中央协调器 — 整个系统的核心。
+ * 管理所有 Agent（Writer、Reviewer、Editor、Planner）的生命周期和协作。
+ * 协调文档管理、记忆系统、状态管理等模块，提供统一的业务接口。
+ *
+ * 主要职责：
+ * - 初始化项目（文档、记忆、状态、技能）
+ * - 章节写作工作流（写 → 审 → 改）
+ * - 规划工作流（对话 → 大纲 → 角色）
+ * - 大纲管理（更新、优化、历史回滚）
+ * - 章节文件管理（插入、删除、重编号，原子操作）
+ */
 import type { LLMProvider, SkillConfig, Character, Outline, ChapterOutline } from '../../types/index.js';
 import { WriterAgent } from '../agents/WriterAgent.js';
 import { ReviewerAgent } from '../agents/ReviewerAgent.js';
@@ -101,7 +114,11 @@ export class Orchestrator {
   async initialize(): Promise<void> {
     if (this.initialized) return;
 
-    await this.memory.initialize();
+    try {
+      await this.memory.initialize();
+    } catch (error) {
+      console.warn('[Orchestrator] Memory/embedding system failed to initialize (RAG will be unavailable):', error);
+    }
     await this.state.initialize();
     await this.references.initialize();
 
@@ -232,11 +249,31 @@ export class Orchestrator {
     console.log('[Orchestrator.generateOutlineDraft] Result content length:', result.content?.length);
     console.log('[Orchestrator.generateOutlineDraft] Result outline:', (result.result as any).outline?.substring(0, 200));
 
-    session.outlineDraft = (result.result as any).outline || result.content || '';
+    // Try multiple sources for the outline content
+    let outlineDraft = (result.result as any).outline || result.content || '';
+
+    // If outline is suspiciously short, the regex cleanup might have stripped too much
+    // Fall back to the raw LLM response
+    if (outlineDraft.length < 100 && result.content && result.content.length > 100) {
+      console.log('[Orchestrator.generateOutlineDraft] Outline too short after cleanup, using raw content');
+      outlineDraft = result.content;
+    }
+
+    session.outlineDraft = outlineDraft;
     session.outlineMetadata = (result.result as any).metadata;
     session.phase = 'outline';
 
     console.log('[Orchestrator.generateOutlineDraft] outlineDraft length:', session.outlineDraft?.length);
+
+    // Also save to outline.md so the Outline page can display it
+    if (session.outlineDraft) {
+      try {
+        await this.documents.saveOutline(session.outlineDraft);
+        console.log('[Orchestrator.generateOutlineDraft] Outline saved to outline.md');
+      } catch (error) {
+        console.error('[Orchestrator.generateOutlineDraft] Failed to save outline.md:', error);
+      }
+    }
 
     return session;
   }
@@ -325,26 +362,63 @@ export class Orchestrator {
     outlineContent: string,
     characters: Array<{ name: string; profile: string }>
   ): Promise<void> {
-    // Save outline
+    // Save outline as raw markdown
     await this.documents.saveOutline(outlineContent);
+    console.log('[Orchestrator.finalizePlanning] Outline saved, length:', outlineContent.length);
 
-    // Save characters
+    // Save characters - use profile as background/description content
     for (const char of characters) {
-      await this.characters.createCharacter({
-        name: char.name,
-        profile: char.profile,
-      });
+      console.log(`[Orchestrator.finalizePlanning] Saving character: ${char.name}, profile length: ${char.profile?.length}`);
+
+      // Try to parse the profile JSON to extract structured info
+      let parsed: any = null;
+      try {
+        parsed = JSON.parse(char.profile);
+      } catch {
+        // profile is plain text, not JSON
+      }
+
+      if (parsed && typeof parsed === 'object') {
+        // Structured data from characterSuggestions
+        await this.characters.createCharacter({
+          name: char.name,
+          role: parsed.role || parsed.importance || '',
+          personality: {
+            core: parsed.briefDescription || parsed.description || '',
+            strengths: parsed.suggestedTraits || [],
+            weaknesses: [],
+          },
+          background: parsed.relationToPlot || '',
+        });
+      } else {
+        // Plain text profile - save as background
+        await this.characters.createCharacter({
+          name: char.name,
+          background: char.profile || '',
+          personality: {
+            core: char.profile?.substring(0, 200) || '',
+            strengths: [],
+            weaknesses: [],
+          },
+        });
+      }
     }
 
     // Update state
     await this.state.updatePhase('writing');
 
-    // Index in memory system
-    await this.memory.addContent({
-      text: outlineContent,
-      source: 'outline',
-      type: 'outline',
-    });
+    // Index in memory system (non-fatal)
+    try {
+      await this.memory.addContent({
+        text: outlineContent,
+        source: 'outline',
+        type: 'outline',
+      });
+    } catch (error) {
+      console.warn('[Orchestrator] Failed to index outline in memory:', error);
+    }
+
+    console.log('[Orchestrator.finalizePlanning] Done. Characters saved:', characters.length);
   }
 
   // ============ Writing Flow ============
@@ -377,7 +451,7 @@ export class Orchestrator {
       skill: this.currentSkill || undefined,
     });
 
-    let chapterContent = writerResult.content;
+    let chapterContent = this.stripEntityTags(writerResult.content);
 
     // Reviewer checks the chapter
     const reviewResult = await this.reviewChapter(chapterIndex, chapterContent);
@@ -387,7 +461,7 @@ export class Orchestrator {
       const editorResult = await this.editorAgent.execute({
         task: {
           type: 'edit',
-          editType: 'revise_from_review',
+          editType: 'review_fix',
           content: chapterContent,
           reviewIssues: reviewResult.issues,
         },
@@ -400,13 +474,17 @@ export class Orchestrator {
     // Save chapter
     await this.documents.saveChapter(chapterIndex, chapterContent);
 
-    // Update memory system (RAG index)
-    await this.memory.addContent({
-      text: chapterContent,
-      source: `chapter_${chapterIndex}`,
-      type: 'chapter',
-      chapterIndex,
-    });
+    // Update memory system (RAG index) - non-fatal if embedding service unavailable
+    try {
+      await this.memory.addContent({
+        text: chapterContent,
+        source: `chapter_${chapterIndex}`,
+        type: 'chapter',
+        chapterIndex,
+      });
+    } catch (error) {
+      console.warn(`[Orchestrator] Failed to index chapter ${chapterIndex} in memory (embedding service may be unavailable):`, error);
+    }
 
     // Generate and save chapter summary + update story summary
     await this.generateAndSaveSummary(chapterIndex, chapterContent, chapterOutline);
@@ -425,13 +503,14 @@ export class Orchestrator {
   }
 
   /**
-   * Build smart context for chapter writing.
-   * Uses: story summary + all chapter summaries + RAG + previous chapter ending.
+   * Build smart context for any writing/editing operation.
+   * Uses: story summary + chapter summaries + RAG + grep + character profiles + chapter ending.
    * Total context stays bounded regardless of novel length.
    */
   private async buildSmartContext(
     chapterIndex: number,
-    chapterOutline: ChapterOutline | null
+    chapterOutline: ChapterOutline | null,
+    options: { searchQuery?: string; grepKeywords?: string[] } = {}
   ) {
     // 1. Story-level summary (~300 chars)
     const storySummary = await this.documents.getStorySummary();
@@ -441,27 +520,62 @@ export class Orchestrator {
     const summariesBeforeCurrent = allSummaries.filter(s => s.index < chapterIndex);
 
     // 3. RAG: semantic search for relevant passages from any chapter
-    const searchQuery = chapterOutline?.summary || '';
-    const ragResults = searchQuery
-      ? (await this.memory.search(searchQuery, { limit: 5 })).ragResults
-      : [];
+    const ragQuery = options.searchQuery || chapterOutline?.summary || '';
+    let ragResults: Array<{ content: string; source: string }> = [];
+    if (ragQuery) {
+      try {
+        ragResults = (await this.memory.search(ragQuery, { limit: 5 })).ragResults;
+      } catch (error) {
+        console.warn('[Orchestrator] RAG search failed:', error);
+      }
+    }
 
-    // 4. Previous chapter ending (~500 chars, for seamless transition)
-    const prevEnding = chapterIndex > 1
+    // 4. Grep: keyword search across all chapters for exact matches
+    let grepContext = '';
+    try {
+      // Collect keywords: explicit ones + character names from outline
+      const charNames = chapterOutline?.characters || [];
+      const allKeywords = [...new Set([...(options.grepKeywords || []), ...charNames])]
+        .filter(k => k && k.length >= 2)
+        .slice(0, 6);
+
+      if (allKeywords.length > 0) {
+        const grepResults = await this.documents.grepChapters(allKeywords, {
+          excludeChapter: chapterIndex,
+          maxResults: 8,
+          contextChars: 80,
+        });
+        if (grepResults.length > 0) {
+          grepContext = grepResults
+            .map(r => `[第${r.chapterIndex + 1}章/"${r.keyword}"] ${r.snippet}`)
+            .join('\n');
+        }
+      }
+    } catch { /* grep failed */ }
+
+    // 5. Previous chapter ending (~500 chars, for seamless transition)
+    const prevEnding = chapterIndex > 0
       ? await this.documents.getChapterEnding(chapterIndex - 1, 500)
       : '';
 
-    // 5. Outline: story premise + this chapter's outline (not full outline)
-    const outlineMeta = await this.documents.getOutlineWithMetadata();
-    // Extract premise/theme section (first ~500 chars)
-    const outlinePremise = outlineMeta.content.substring(0, 500);
+    // 6. Outline: story premise + this chapter's outline
+    let outlinePremise = '';
+    try {
+      const outlineMeta = await this.documents.getOutlineWithMetadata();
+      outlinePremise = outlineMeta.content.substring(0, 500);
+    } catch { /* ignore */ }
 
     // Compose outline context
     let outlineContext = '';
     if (storySummary) {
       outlineContext += `【故事全局摘要】\n${storySummary}\n\n`;
     }
-    outlineContext += `【故事设定】\n${outlinePremise}\n`;
+    if (outlinePremise) {
+      outlineContext += `【故事设定】\n${outlinePremise}\n\n`;
+    }
+    if (grepContext) {
+      outlineContext += `【关键词检索（其他章节）】\n${grepContext}\n\n`;
+    }
 
     return {
       outlineContext,
@@ -588,8 +702,16 @@ ${chapterList}
       characters.map(name => this.characters.getCharacter(name))
     );
 
-    // Get timeline for validation
-    const timeline = await this.memory.getTimeline();
+    // Build smart context (RAG + grep) for cross-chapter consistency checking
+    const smartContext = await this.buildSmartContext(chapterIndex, chapterOutline);
+
+    // Get timeline for validation (non-fatal)
+    let timeline: any[] = [];
+    try {
+      timeline = await this.memory.getTimeline();
+    } catch (error) {
+      console.warn('[Orchestrator] Failed to get timeline:', error);
+    }
 
     // Reviewer agent
     const reviewResult = await this.reviewerAgent.execute({
@@ -600,29 +722,36 @@ ${chapterList}
         chapterContent,
       },
       context: {
-        outline: outlineContent,
+        outline: outlineContent + '\n\n' + smartContext.outlineContext,
         chapterOutline: chapterOutline || undefined,
         characters: characterProfiles.filter(Boolean).map(c => ({
           name: c!.name,
-          profile: c!.profile || '',
+          profile: c!.background || c!.personality?.core || '',
+          personality: c!.personality,
         })),
+        previousChapters: smartContext.chapterSummaries,
+        relevantMemory: smartContext.ragResults,
         timeline,
       },
       skill: this.currentSkill || undefined,
     });
 
-    // Validate facts against knowledge graph
-    const factsToValidate = (reviewResult as any).extractedFacts || [];
-    for (const fact of factsToValidate) {
-      const validation = await this.memory.validateFact(fact);
-      if (!validation.valid) {
-        (reviewResult as any).issues = (reviewResult as any).issues || [];
-        (reviewResult as any).issues.push({
-          type: 'error',
-          category: 'consistency',
-          description: validation.reason || 'Fact validation failed',
-        });
+    // Validate facts against knowledge graph (non-fatal)
+    try {
+      const factsToValidate = (reviewResult as any).extractedFacts || [];
+      for (const fact of factsToValidate) {
+        const validation = await this.memory.validateFact(fact);
+        if (!validation.valid) {
+          (reviewResult as any).issues = (reviewResult as any).issues || [];
+          (reviewResult as any).issues.push({
+            type: 'error',
+            category: 'consistency',
+            description: validation.reason || 'Fact validation failed',
+          });
+        }
       }
+    } catch (error) {
+      console.warn('[Orchestrator] Knowledge graph validation failed:', error);
     }
 
     return {
@@ -636,17 +765,68 @@ ${chapterList}
   /**
    * Continue writing (for continuation mode)
    */
-  async continueWriting(existingContent: string): Promise<string> {
-    // Analyze the existing content
+  async continueWriting(chapterIndex: number, existingContent: string): Promise<string> {
+    const chapterOutline = await this.outline.getChapterOutline(chapterIndex);
+    const relevantCharacters = await this.getRelevantCharacters(chapterOutline);
+
+    // Extract keywords from existing content tail for grep
+    const tail = existingContent.substring(existingContent.length - 500);
+    const tailKeywords = (tail.match(/[\u4e00-\u9fa5]{2,4}/g) || []).slice(-5);
+    const charNames = relevantCharacters.map(c => c.name);
+    const grepKeywords = [...new Set([...charNames, ...tailKeywords])]
+      .filter(k => k.length >= 2)
+      .slice(0, 6);
+
+    const smartContext = await this.buildSmartContext(chapterIndex, chapterOutline, {
+      searchQuery: chapterOutline?.summary || tail.substring(tail.length - 200),
+      grepKeywords,
+    });
+
     const analysis = await this.writerAgent.execute({
       task: {
         type: 'continue',
         existingContent,
+        chapterOutline: chapterOutline?.summary || '',
+      },
+      context: {
+        outline: smartContext.outlineContext,
+        previousChapters: smartContext.chapterSummaries,
+        characters: relevantCharacters,
+        relevantMemory: smartContext.ragResults,
       },
       skill: this.currentSkill || undefined,
     });
 
-    return analysis.content;
+    return this.stripEntityTags(analysis.content);
+  }
+
+  /**
+   * Refine the outline directly (without a planning session).
+   * Used by the Outline page's "AI优化建议" feature.
+   */
+  async refineOutlineDirect(feedback: string): Promise<Outline | null> {
+    // Read current outline raw markdown
+    const currentOutlineRaw = await this.documents.getOutline();
+
+    const result = await this.plannerAgent.execute({
+      task: {
+        type: 'plan',
+        planType: 'refine_outline',
+        currentOutline: currentOutlineRaw,
+        userFeedback: feedback,
+      },
+      skill: this.currentSkill || undefined,
+    });
+
+    const refinedContent = (result.result as any).refinedOutline;
+    if (refinedContent) {
+      // Save current version to history before overwriting
+      await this.outline.saveCurrentToHistory();
+      // Save refined outline
+      await this.documents.saveOutline(refinedContent);
+    }
+
+    return this.outline.getOutline();
   }
 
   // ============ Editing ============
@@ -658,16 +838,55 @@ ${chapterList}
     chapterIndex: number,
     instruction: string,
     targetSection?: string
-  ): Promise<string> {
+  ): Promise<{ content: string; changeSummary: string }> {
     const chapterContent = await this.documents.getChapter(chapterIndex);
+
+    // Build full novel context (same as writeChapter: summaries + RAG + grep)
+    const chapterOutline = await this.outline.getChapterOutline(chapterIndex);
+    const relevantCharacters = await this.getRelevantCharacters(chapterOutline);
+
+    // Extract keywords from instruction for grep
+    const instructionKeywords = (instruction.match(/[\u4e00-\u9fa5]{2,4}/g) || []);
+    const charNames = relevantCharacters.map(c => c.name);
+    const grepKeywords = [...new Set([...charNames, ...instructionKeywords])]
+      .filter(k => k.length >= 2)
+      .slice(0, 6);
+
+    const smartContext = await this.buildSmartContext(chapterIndex, chapterOutline, {
+      searchQuery: targetSection || instruction,
+      grepKeywords,
+    });
+
+    // Compose novelContext string for the editor
+    let novelContext = smartContext.outlineContext;
+
+    if (chapterOutline) {
+      novelContext += `【本章大纲】\n${chapterOutline.summary || ''}\n\n`;
+    }
+    if (relevantCharacters.length > 0) {
+      novelContext += `【相关角色】\n${relevantCharacters.map(c => `- ${c.name}: ${c.profile}`).join('\n')}\n\n`;
+    }
+    if (smartContext.chapterSummaries.length > 0) {
+      novelContext += `【已有章节摘要】\n${smartContext.chapterSummaries.map((s: any) => `第${s.index + 1}章: ${s.summary}`).join('\n')}\n\n`;
+    }
+    if (smartContext.ragResults.length > 0) {
+      const ragText = smartContext.ragResults
+        .filter((r: any) => r.content?.trim())
+        .map((r: any) => `[${r.source || ''}] ${r.content.substring(0, 300)}`)
+        .join('\n');
+      if (ragText) {
+        novelContext += `【相关段落（语义检索）】\n${ragText}\n\n`;
+      }
+    }
 
     const editorResult = await this.editorAgent.execute({
       task: {
         type: 'edit',
-        editType: 'targeted_edit',
-        content: chapterContent,
-        instruction,
-        targetSection,
+        editType: 'targeted',
+        originalContent: chapterContent,
+        userInstructions: instruction,
+        targetLocation: targetSection,
+        novelContext,
       },
       skill: this.currentSkill || undefined,
     });
@@ -675,13 +894,147 @@ ${chapterList}
     // Save edited chapter
     await this.documents.saveChapter(chapterIndex, editorResult.content);
 
-    // Update memory
-    await this.memory.updateContent(
-      { type: 'chapter', identifier: chapterIndex },
-      editorResult.content
-    );
+    // Update memory (non-fatal)
+    try {
+      await this.memory.updateContent(
+        { type: 'chapter', identifier: chapterIndex },
+        editorResult.content
+      );
+    } catch (error) {
+      console.warn('[Orchestrator] Failed to update memory after edit:', error);
+    }
 
-    return editorResult.content;
+    // Build human-readable change summary
+    let changeSummary = '';
+    const changeLog = (editorResult as any).changeLog;
+    if (changeLog?.summary) {
+      changeSummary = changeLog.summary;
+    }
+    if (changeLog?.changes?.length > 0) {
+      const details = changeLog.changes.map((c: any, i: number) =>
+        `修改${i + 1}: ${c.reason || ''}\n  原文: "${c.original}..."\n  改为: "${c.revised}..."`
+      ).join('\n\n');
+      changeSummary = changeSummary ? `${changeSummary}\n\n${details}` : details;
+    }
+    if (!changeSummary) {
+      changeSummary = '已完成修改。';
+    }
+
+    return { content: editorResult.content, changeSummary };
+  }
+
+  // ============ Chapter File Management ============
+
+  /**
+   * Insert a new chapter after the given index (atomic: files + outline).
+   * Returns the updated outline and the new chapter's index.
+   */
+  async insertChapter(afterIndex: number): Promise<{ outline: Outline; newIndex: number }> {
+    console.log(`[Orchestrator] insertChapter: afterIndex=${afterIndex}`);
+    const outlineData = await this.outline.getOutline();
+    if (!outlineData) throw new Error('No outline exists');
+
+    // Deduplicate and sort
+    const seen = new Set<number>();
+    const chapters = outlineData.chapters
+      .filter(ch => { if (seen.has(ch.index)) return false; seen.add(ch.index); return true; })
+      .sort((a, b) => a.index - b.index);
+
+    const newIndex = afterIndex + 1;
+    console.log(`[Orchestrator] insertChapter: existing chapters=[${chapters.map(c => c.index).join(',')}], newIndex=${newIndex}`);
+
+    // 1. Shift chapter FILES with index >= newIndex upward (reverse order to avoid overwrite)
+    const toShift = chapters.filter(ch => ch.index >= newIndex);
+    if (toShift.length > 0) {
+      const mapping = toShift.map(ch => ({ from: ch.index, to: ch.index + 1 }));
+      console.log(`[Orchestrator] insertChapter: shifting files`, mapping);
+      await this.documents.reindexChapterFiles(mapping);
+    }
+
+    // 2. Build new chapters array: shift indices + add new chapter
+    const newChapters = chapters.map(ch =>
+      ch.index >= newIndex ? { ...ch, index: ch.index + 1 } : ch
+    );
+    newChapters.push({
+      index: newIndex,
+      title: `第${newIndex}章`,
+      summary: '',
+      keyEvents: [],
+      characters: [],
+      targetWordCount: 4000,
+    });
+    newChapters.sort((a, b) => a.index - b.index);
+
+    console.log(`[Orchestrator] insertChapter: saving outline with ${newChapters.length} chapters`);
+    // 3. Save updated outline (only update chapters field)
+    const updated = await this.outline.updateOutline({ chapters: newChapters });
+    console.log(`[Orchestrator] insertChapter: done, newIndex=${newIndex}`);
+    return { outline: updated, newIndex };
+  }
+
+  /**
+   * Remove a chapter by index (atomic: delete file + shift files + update outline).
+   * Returns the updated outline.
+   */
+  async removeChapter(index: number): Promise<Outline> {
+    console.log(`[Orchestrator] removeChapter: index=${index}`);
+    const outlineData = await this.outline.getOutline();
+    if (!outlineData) throw new Error('No outline exists');
+
+    // Deduplicate and sort
+    const seen = new Set<number>();
+    const chapters = outlineData.chapters
+      .filter(ch => { if (seen.has(ch.index)) return false; seen.add(ch.index); return true; })
+      .sort((a, b) => a.index - b.index);
+
+    console.log(`[Orchestrator] removeChapter: existing chapters=[${chapters.map(c => `${c.index}:${c.title}`).join(', ')}]`);
+
+    // 1. Delete the chapter file
+    console.log(`[Orchestrator] removeChapter: deleting file for chapter ${index}`);
+    await this.documents.deleteChapterFile(index);
+
+    // 2. Shift chapter FILES after the deleted one downward
+    const toShift = chapters.filter(ch => ch.index > index);
+    if (toShift.length > 0) {
+      const mapping = toShift.map(ch => ({ from: ch.index, to: ch.index - 1 }));
+      console.log(`[Orchestrator] removeChapter: shifting files`, mapping);
+      await this.documents.reindexChapterFiles(mapping);
+    }
+
+    // 3. Update outline: remove deleted chapter + shift indices
+    const newChapters = chapters
+      .filter(ch => ch.index !== index)
+      .map(ch => ch.index > index ? { ...ch, index: ch.index - 1 } : ch);
+
+    console.log(`[Orchestrator] removeChapter: saving outline with ${newChapters.length} chapters (removed index ${index})`);
+    const updated = await this.outline.updateOutline({ chapters: newChapters });
+    console.log(`[Orchestrator] removeChapter: done`);
+    return updated;
+  }
+
+  /**
+   * Reindex chapter files (rename) when inserting or deleting chapters.
+   */
+  async reindexChapterFiles(mapping: { from: number; to: number }[]): Promise<void> {
+    await this.documents.reindexChapterFiles(mapping);
+  }
+
+  /**
+   * Delete a single chapter file.
+   */
+  async deleteChapterFile(index: number): Promise<void> {
+    await this.documents.deleteChapterFile(index);
+  }
+
+  /**
+   * Get chapter content by index (for word count calculation).
+   */
+  async getChapterContent(index: number): Promise<string> {
+    try {
+      return await this.documents.getChapter(index);
+    } catch {
+      return '';
+    }
   }
 
   // ============ Character Management ============
@@ -692,10 +1045,14 @@ ${chapterList}
   async createCharacter(name: string, profile: string): Promise<Character> {
     const character = await this.characters.createCharacter({ name, profile });
 
-    // Extract entities and add to knowledge graph
-    const entities = await this.memory.extractEntities(profile);
-    for (const entity of entities) {
-      await this.memory.graph.addEntity(entity);
+    // Extract entities and add to knowledge graph (non-fatal)
+    try {
+      const entities = await this.memory.extractEntities(profile);
+      for (const entity of entities) {
+        await this.memory.graph.addEntity(entity);
+      }
+    } catch (error) {
+      console.warn('[Orchestrator] Failed to index character in knowledge graph:', error);
     }
 
     return character;
@@ -794,15 +1151,19 @@ ${chapterList}
   ): Promise<void> {
     await this.references.addReference(filePath, type);
 
-    // Index in memory system
-    const content = await this.references.getReference(filePath);
-    if (content) {
-      await this.memory.addContent({
-        text: content,
-        source: filePath,
-        type: 'reference',
-        tags: [type],
-      });
+    // Index in memory system (non-fatal)
+    try {
+      const content = await this.references.getReference(filePath);
+      if (content) {
+        await this.memory.addContent({
+          text: content,
+          source: filePath,
+          type: 'reference',
+          tags: [type],
+        });
+      }
+    } catch (error) {
+      console.warn('[Orchestrator] Failed to index reference in memory:', error);
     }
   }
 
@@ -943,20 +1304,54 @@ ${chapterList}
     return chapters;
   }
 
+  /**
+   * Strip [[entity:type]] markers from generated content.
+   * These markers are used for entity extraction but should not appear in final text.
+   */
+  private stripEntityTags(content: string): string {
+    return content.replace(/\[\[([^:\]]+):[^\]]+\]\]/g, '$1');
+  }
+
   private async getRelevantCharacters(
     chapterOutline: ChapterOutline | null
   ): Promise<Array<{ name: string; profile: string }>> {
     if (!chapterOutline?.characters) {
-      return [];
+      // No chapter-specific characters, get all characters as fallback
+      const allNames = await this.characters.listCharacters();
+      const characters: Array<{ name: string; profile: string }> = [];
+      for (const name of allNames) {
+        const char = await this.characters.getCharacter(name);
+        if (char) {
+          characters.push({
+            name: char.name,
+            profile: char.background || char.personality?.core || '',
+          });
+        }
+      }
+      return characters;
     }
 
     const characters: Array<{ name: string; profile: string }> = [];
+    const allNames = await this.characters.listCharacters();
+
     for (const name of chapterOutline.characters) {
-      const char = await this.characters.getCharacter(name);
+      // Try exact match first
+      let char = await this.characters.getCharacter(name);
+
+      // Fuzzy match: outline may say "辩机（萧昱）" but file is "辩机.md"
+      if (!char && allNames.length > 0) {
+        const fuzzyMatch = allNames.find(
+          fn => name.includes(fn) || fn.includes(name)
+        );
+        if (fuzzyMatch) {
+          char = await this.characters.getCharacter(fuzzyMatch);
+        }
+      }
+
       if (char) {
         characters.push({
           name: char.name,
-          profile: char.profile || '',
+          profile: char.background || char.personality?.core || '',
         });
       }
     }

@@ -1,3 +1,10 @@
+/**
+ * @module src/core/agents/ReviewerAgent
+ * @description 审稿 Agent — 负责内容质量审查。
+ * 双重审查机制：1) 知识图谱硬事实验证（年龄、关系、时间线）
+ *               2) LLM 综合审查（逻辑、人物一致性、风格）
+ * 输出加权评分（事实40% + 逻辑30% + 人物20% + 风格10%）和问题列表。
+ */
 import { BaseAgent, type AgentInput, type AgentOutput } from './BaseAgent.js';
 import type { LLMProvider, Entity, ReviewIssue, ReviewScore } from '../../types/index.js';
 import type { KnowledgeGraph, GraphUpdate } from '../../memory/graph/KnowledgeGraph.js';
@@ -49,9 +56,11 @@ export class ReviewerAgent extends BaseAgent {
     // 2. LLM-based review
     const llmReview = await this.llmReview(reviewTask, context);
 
-    // 3. Combine results
-    const allIssues = [...graphValidation.issues, ...llmReview.issues];
-    const overallScore = this.calculateOverallScore(llmReview.scores, graphValidation.issues);
+    // 3. Combine results (ensure arrays)
+    const gIssues = Array.isArray(graphValidation.issues) ? graphValidation.issues : [];
+    const lIssues = Array.isArray(llmReview.issues) ? llmReview.issues : [];
+    const allIssues = [...gIssues, ...lIssues];
+    const overallScore = this.calculateOverallScore(llmReview.scores, gIssues);
 
     // 4. Determine if approved
     const hasBlockingIssues = allIssues.some(i => i.severity === 'critical');
@@ -62,8 +71,8 @@ export class ReviewerAgent extends BaseAgent {
       approved,
       score: overallScore,
       issues: allIssues,
-      suggestions: llmReview.suggestions,
-      graphUpdates: llmReview.graphUpdates,
+      suggestions: Array.isArray(llmReview.suggestions) ? llmReview.suggestions : [],
+      graphUpdates: Array.isArray(llmReview.graphUpdates) ? llmReview.graphUpdates : [],
       metadata: {
         type: 'review',
         issueCount: allIssues.length,
@@ -232,7 +241,7 @@ ${timeline.map(e => `- ${e.time}: ${e.name}`).join('\n')}
 【待审内容】
 ${task.content}
 
-${context?.characters ? `【人物设定】\n${context.characters.map(c => `- ${c.name}: ${c.personality.core}`).join('\n')}\n` : ''}
+${context?.characters ? `【人物设定】\n${context.characters.map((c: any) => `- ${c.name}: ${c.personality?.core || c.profile || ''}`).join('\n')}\n` : ''}
 
 ${checkRulesText ? `【审查重点】\n${checkRulesText}\n` : ''}
 
@@ -290,16 +299,23 @@ ${checkRulesText ? `【审查重点】\n${checkRulesText}\n` : ''}
     const response = await this.complete(prompt, { maxTokens: 2000 });
     const result = this.extractJSON<LLMReviewResult>(response);
 
-    return result || {
+    const defaultScores = {
+      factConsistency: 70,
+      logicConsistency: 70,
+      characterConsistency: 70,
+      styleConsistency: 70,
+    };
+
+    return {
       scores: {
-        factConsistency: 70,
-        logicConsistency: 70,
-        characterConsistency: 70,
-        styleConsistency: 70,
+        factConsistency: result?.scores?.factConsistency ?? defaultScores.factConsistency,
+        logicConsistency: result?.scores?.logicConsistency ?? defaultScores.logicConsistency,
+        characterConsistency: result?.scores?.characterConsistency ?? defaultScores.characterConsistency,
+        styleConsistency: result?.scores?.styleConsistency ?? defaultScores.styleConsistency,
       },
-      issues: [],
-      suggestions: [],
-      graphUpdates: [],
+      issues: Array.isArray(result?.issues) ? result.issues : [],
+      suggestions: Array.isArray(result?.suggestions) ? result.suggestions : [],
+      graphUpdates: Array.isArray(result?.graphUpdates) ? result.graphUpdates : [],
     };
   }
 

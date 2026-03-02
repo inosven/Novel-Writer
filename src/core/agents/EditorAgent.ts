@@ -1,3 +1,11 @@
+/**
+ * @module src/core/agents/EditorAgent
+ * @description 编辑 Agent — 负责内容修订和润色。
+ * 支持编辑类型：审稿问题修复(review_fix)、用户指令编辑(user_edit)、
+ * 润色(polish)、定向编辑(targeted)。
+ * 定向编辑支持 replace/insert_before/insert_after/prepend/append 操作，
+ * 使用模糊匹配（精确→空白规范化→子串匹配）定位修改位置。
+ */
 import { BaseAgent, type AgentInput, type AgentOutput } from './BaseAgent.js';
 import type { LLMProvider, ReviewIssue, SkillConfig } from '../../types/index.js';
 
@@ -248,72 +256,268 @@ ${task.polishFocus?.map(f => `- ${f}`).join('\n') || '- 整体提升文字质量
     task: EditTask,
     skill?: SkillConfig
   ): Promise<EditorOutput> {
-    const prompt = `
-修改以下内容的特定部分：
+    const novelContext = task.novelContext || '';
 
-【原始内容】
+    const prompt = `
+你是小说编辑。请根据修改要求对原文进行编辑，支持：修改、插入新内容、在开头/末尾添加等任意操作。
+修改时必须确保与整部小说的故事背景、角色设定、前后情节保持一致。
+
+${novelContext ? `=== 小说背景信息（仅供参考，不要修改这些内容）===\n${novelContext}=== 背景信息结束 ===\n\n` : ''}【本章原文】
 ${task.originalContent}
 
-【目标位置】
-${task.targetLocation}
-
-【修改要求】
+${task.targetLocation ? `【用户选中的文本】\n${task.targetLocation}\n\n` : ''}【修改要求】
 ${task.userInstructions}
 
-请：
-1. 精确定位目标位置
-2. 按要求进行修改
-3. 确保修改后的内容与前后文衔接自然
+你必须严格按照以下JSON格式输出，不要输出任何其他内容。
 
-输出修改后的完整内容和变更说明。
+每个 change 有一个 type 字段表示操作类型：
+
+\`\`\`json
+{
+  "summary": "一句话总结修改内容",
+  "changes": [
+    // 类型1: replace - 替换原文中的一段文字
+    { "type": "replace", "search": "原文中要被替换的精确片段（至少20字）", "replace": "替换后的新文本", "reason": "原因" },
+
+    // 类型2: insert_before - 在某段文字前面插入新内容
+    { "type": "insert_before", "anchor": "原文中的锚点文字（至少20字）", "content": "要插入的新内容", "reason": "原因" },
+
+    // 类型3: insert_after - 在某段文字后面插入新内容
+    { "type": "insert_after", "anchor": "原文中的锚点文字（至少20字）", "content": "要插入的新内容", "reason": "原因" },
+
+    // 类型4: prepend - 在全文开头添加新内容
+    { "type": "prepend", "content": "要在开头添加的内容", "reason": "原因" },
+
+    // 类型5: append - 在全文末尾添加新内容
+    { "type": "append", "content": "要在末尾添加的内容", "reason": "原因" }
+  ]
+}
+\`\`\`
+
+关键规则：
+1. search 和 anchor 必须是原文中【逐字精确存在】的连续片段，不能改动
+2. 根据用户需求选择合适的操作类型，不要强行用 replace
+3. 可以组合多种操作类型
+4. 只输出JSON代码块，不要输出其他文字
 `;
 
-    const response = await this.complete(prompt, { maxTokens: 6000 });
+    const response = await this.complete(prompt, { maxTokens: 4000 });
 
-    const { content, changeLog } = this.parseEditResponse(response);
+    // Parse and apply changes
+    const parsed = this.parseChangesResponse(response);
+    let content = task.originalContent || '';
+    const appliedChanges: ContentChange[] = [];
+    const failedChanges: string[] = [];
+
+    for (const change of parsed.changes) {
+      const applied = this.applyChange(content, change);
+      if (applied !== null) {
+        content = applied.content;
+        appliedChanges.push(applied.detail);
+      } else {
+        const desc = change.reason || change.search?.substring(0, 30) || change.anchor?.substring(0, 30) || '未知';
+        failedChanges.push(desc);
+        console.warn(`[EditorAgent] Change failed to apply: type=${change.type}, search/anchor not found in content`);
+      }
+    }
+
+    let summaryText = parsed.summary || '';
+    if (appliedChanges.length > 0) {
+      summaryText = summaryText || `修改了${appliedChanges.length}处`;
+    }
+    if (failedChanges.length > 0) {
+      summaryText += `\n（${failedChanges.length}处修改未能匹配原文，已跳过：${failedChanges.join('、')}）`;
+    }
+    if (!summaryText) {
+      summaryText = '未找到可修改的内容';
+    }
+
+    const changeLog: ChangeLog = {
+      summary: summaryText.trim(),
+      changes: appliedChanges,
+      unaddressedIssues: failedChanges,
+    };
 
     return {
       content,
-      changes: changeLog.changes,
+      changes: appliedChanges,
       changeLog,
       metadata: {
         type: 'targeted',
         targetLocation: task.targetLocation,
-        changesCount: changeLog.changes.length,
+        changesCount: appliedChanges.length,
       },
     };
   }
 
   /**
-   * Parse edit response to extract content and change log
+   * Apply a single change operation to content
    */
-  private parseEditResponse(response: string): { content: string; changeLog: ChangeLog } {
-    // Extract markdown content
-    const contentMatch = response.match(/```markdown\s*([\s\S]*?)```/);
-    const content = contentMatch?.[1]?.trim() || response;
+  private applyChange(content: string, change: any): { content: string; detail: ContentChange } | null {
+    const type = change.type || 'replace';
+    const reason = change.reason || '';
 
-    // Extract JSON change log
-    const jsonMatch = response.match(/```json\s*([\s\S]*?)```/);
-    let changeLog: ChangeLog = {
-      summary: '',
-      changes: [],
-      unaddressedIssues: [],
-    };
-
-    if (jsonMatch) {
-      try {
-        const parsed = JSON.parse(jsonMatch[1]);
-        changeLog = {
-          summary: parsed.summary || '',
-          changes: parsed.changes || [],
-          unaddressedIssues: parsed.unaddressedIssues || [],
+    switch (type) {
+      case 'replace': {
+        const search = change.search;
+        if (!search) return null;
+        const matched = this.fuzzyFind(content, search);
+        if (!matched) return null;
+        const newContent = content.replace(matched, change.replace || '');
+        return {
+          content: newContent,
+          detail: { location: '替换', original: search.substring(0, 50), revised: (change.replace || '').substring(0, 50), reason },
         };
+      }
+      case 'insert_before': {
+        const anchor = change.anchor;
+        if (!anchor) return null;
+        const matched = this.fuzzyFind(content, anchor);
+        if (!matched) return null;
+        const newContent = content.replace(matched, (change.content || '') + matched);
+        return {
+          content: newContent,
+          detail: { location: '插入(前)', original: anchor.substring(0, 30), revised: (change.content || '').substring(0, 50), reason },
+        };
+      }
+      case 'insert_after': {
+        const anchor = change.anchor;
+        if (!anchor) return null;
+        const matched = this.fuzzyFind(content, anchor);
+        if (!matched) return null;
+        const newContent = content.replace(matched, matched + (change.content || ''));
+        return {
+          content: newContent,
+          detail: { location: '插入(后)', original: anchor.substring(0, 30), revised: (change.content || '').substring(0, 50), reason },
+        };
+      }
+      case 'prepend': {
+        const newText = change.content || '';
+        if (!newText) return null;
+        return {
+          content: newText + '\n\n' + content,
+          detail: { location: '开头添加', original: '', revised: newText.substring(0, 50), reason },
+        };
+      }
+      case 'append': {
+        const newText = change.content || '';
+        if (!newText) return null;
+        return {
+          content: content + '\n\n' + newText,
+          detail: { location: '末尾添加', original: '', revised: newText.substring(0, 50), reason },
+        };
+      }
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * Fuzzy find a search string in content.
+   * Tries exact match first, then whitespace-normalized match,
+   * then substring match using the longest unique fragment.
+   * Returns the actual matched text from content (for precise replacement), or null.
+   */
+  private fuzzyFind(content: string, search: string): string | null {
+    // 1. Exact match
+    if (content.includes(search)) return search;
+
+    // 2. Whitespace-normalized match: collapse all whitespace (spaces, newlines, tabs)
+    //    into single spaces for comparison, but return the original text from content.
+    const normalizeWS = (s: string) => s.replace(/\s+/g, ' ').trim();
+    const normalizedSearch = normalizeWS(search);
+    const normalizedContent = normalizeWS(content);
+    const normIdx = normalizedContent.indexOf(normalizedSearch);
+    if (normIdx !== -1) {
+      // Map back to original content position
+      return this.mapNormalizedToOriginal(content, normIdx, normalizedSearch.length);
+    }
+
+    // 3. Substring match: try first 60% characters of the search as anchor
+    const subLen = Math.max(10, Math.floor(search.length * 0.6));
+    const subSearch = search.substring(0, subLen);
+    if (content.includes(subSearch)) {
+      // Found the beginning; now find where the matching region ends
+      const startIdx = content.indexOf(subSearch);
+      // Take a region roughly the same length as the original search
+      const endIdx = Math.min(content.length, startIdx + Math.ceil(search.length * 1.2));
+      return content.substring(startIdx, endIdx);
+    }
+
+    return null;
+  }
+
+  /**
+   * Map a position in whitespace-normalized text back to the original text.
+   */
+  private mapNormalizedToOriginal(original: string, normStart: number, normLen: number): string {
+    let normPos = 0;
+    let origStart = -1;
+    let origEnd = -1;
+    let i = 0;
+
+    // Skip leading whitespace in original
+    while (i < original.length && normPos < normStart) {
+      if (/\s/.test(original[i])) {
+        // In normalized form, consecutive whitespace = 1 space
+        if (i === 0 || !/\s/.test(original[i - 1])) {
+          normPos++;
+        }
+      } else {
+        normPos++;
+      }
+      i++;
+    }
+    origStart = i;
+
+    // Now advance normLen characters in normalized space
+    let consumed = 0;
+    while (i < original.length && consumed < normLen) {
+      if (/\s/.test(original[i])) {
+        if (i === 0 || !/\s/.test(original[i - 1])) {
+          consumed++;
+        }
+      } else {
+        consumed++;
+      }
+      i++;
+    }
+    origEnd = i;
+
+    if (origStart >= 0 && origEnd > origStart) {
+      return original.substring(origStart, origEnd);
+    }
+    return original.substring(origStart, Math.min(original.length, origStart + normLen));
+  }
+
+  /**
+   * Parse AI response to extract changes JSON
+   */
+  private parseChangesResponse(response: string): { summary: string; changes: any[] } {
+    const defaultResult = { summary: '', changes: [] };
+
+    // Try to extract JSON from code block
+    const jsonMatch = response.match(/```json\s*([\s\S]*?)```/);
+    const jsonStr = jsonMatch?.[1]?.trim();
+
+    if (!jsonStr) {
+      // Try to find raw JSON object
+      const rawMatch = response.match(/\{[\s\S]*"changes"[\s\S]*\}/);
+      if (!rawMatch) return defaultResult;
+      try {
+        const parsed = JSON.parse(rawMatch[0]);
+        return { summary: parsed.summary || '', changes: Array.isArray(parsed.changes) ? parsed.changes : [] };
       } catch {
-        // Failed to parse JSON, use default
+        return defaultResult;
       }
     }
 
-    return { content, changeLog };
+    try {
+      const parsed = JSON.parse(jsonStr);
+      return { summary: parsed.summary || '', changes: Array.isArray(parsed.changes) ? parsed.changes : [] };
+    } catch {
+      return defaultResult;
+    }
   }
 
   /**
@@ -354,6 +558,7 @@ interface EditTask {
   relevantContext?: string[];
   polishFocus?: string[];
   targetLocation?: string;
+  novelContext?: string;
 }
 
 interface ContentChange {

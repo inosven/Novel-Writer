@@ -1,3 +1,7 @@
+/**
+ * @module src/llm/OllamaAdapter
+ * @description Ollama 本地模型适配器。通过 HTTP 调用本地 Ollama 服务。
+ */
 import { Ollama } from 'ollama';
 import { BaseLLMProvider } from './LLMProvider.js';
 import type { CompletionOptions, LLMConfig } from '../types/index.js';

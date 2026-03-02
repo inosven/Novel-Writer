@@ -1,3 +1,7 @@
+/**
+ * @module src/llm/ClaudeAdapter
+ * @description Claude API 适配器。使用 Anthropic SDK 调用 Claude 模型。
+ */
 import Anthropic from '@anthropic-ai/sdk';
 import { BaseLLMProvider } from './LLMProvider.js';
 import type { CompletionOptions, LLMConfig } from '../types/index.js';

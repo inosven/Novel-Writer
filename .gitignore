@@ -9,12 +9,14 @@ out/
 
 # Environment & secrets
 .env
-.env.local
-.env.*.local
+.env.*
+env/
 
 # Application state (user-specific, regenerated at runtime)
 .state/
-my-novel/.state/
+
+# User novel project data (created at runtime, not part of source)
+my-novel/
 
 # Editor & IDE
 .vscode/

@@ -1,3 +1,10 @@
+/**
+ * @module src/skills/SkillLoader
+ * @description 技能加载器。
+ * 从磁盘加载写作技能预设：config.yaml（风格参数）、方法论文件、模板和示例。
+ * 技能目录结构：config.yaml, outline-method.md, character-method.md,
+ * writing-method.md, output-style.md, templates/, examples/, references/
+ */
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as yaml from 'yaml';

@@ -1,3 +1,12 @@
+/**
+ * @module src/core/agents/BaseAgent
+ * @description Agent 基类。
+ * 提供所有 Agent 的通用能力：LLM 调用、流式输出、上下文构建、JSON 提取。
+ * 子类（Writer、Reviewer、Editor、Planner）继承此类并实现 execute() 方法。
+ *
+ * JSON 提取策略（按优先级）：
+ * 1. ```json 代码块 → 2. 最后一个 JSON 对象 → 3. 最外层 {} → 4. 整个响应
+ */
 import { EventEmitter } from 'events';
 import type { LLMProvider, AgentRole, AgentContext, SkillConfig } from '../../types/index.js';
 
@@ -119,6 +128,27 @@ export abstract class BaseAgent extends EventEmitter {
         extract: () => {
           const match = response.match(/```(?:json)?\s*([\s\S]*?)```/);
           return match ? match[1].trim() : null;
+        },
+      },
+      {
+        // Reasoning models (Kimi K2.5, etc.) place the actual JSON answer at the END
+        // of the response. Working backwards finds the real answer, not template examples
+        // embedded earlier in the reasoning text.
+        name: 'Last JSON object (backwards)',
+        extract: () => {
+          const lastBrace = response.lastIndexOf('}');
+          if (lastBrace === -1) return null;
+          let depth = 0;
+          for (let i = lastBrace; i >= 0; i--) {
+            if (response[i] === '}') depth++;
+            else if (response[i] === '{') {
+              depth--;
+              if (depth === 0) {
+                return response.substring(i, lastBrace + 1);
+              }
+            }
+          }
+          return null;
         },
       },
       {

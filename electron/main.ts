@@ -1,6 +1,13 @@
+/**
+ * @module electron/main
+ * @description Electron 主进程入口。
+ * 负责创建 BrowserWindow、注册所有 IPC 处理器、设置应用菜单。
+ * 所有后端功能通过 IPC 模块暴露给渲染进程。
+ */
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
+import { setupLogger, closeLogger } from './utils/logger.js';
 import { setupConfigIPC } from './ipc/config.js';
 import { setupProjectIPC } from './ipc/project.js';
 import { setupPlanningIPC } from './ipc/planning.js';
@@ -8,6 +15,17 @@ import { setupWritingIPC } from './ipc/writing.js';
 import { setupCharactersIPC } from './ipc/characters.js';
 import { setupOutlineIPC } from './ipc/outline.js';
 import { setupSkillsIPC } from './ipc/skills.js';
+
+// ESM polyfill for __dirname (needed early for logger)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const electronRequire = createRequire(import.meta.url);
+const { app } = electronRequire('electron');
+
+// Initialize file logger as early as possible — writes to <userData>/.state/app.log
+// After a project is opened, logs redirect to <projectPath>/.state/app.log
+setupLogger(app.getPath('userData'));
 
 // Global error handlers to prevent crash
 process.on('uncaughtException', (error) => {
@@ -18,12 +36,7 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('[Main] Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
-// ESM polyfill for __dirname
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const electronRequire = createRequire(import.meta.url);
-const { app, BrowserWindow, ipcMain, Menu } = electronRequire('electron');
+const { BrowserWindow, ipcMain, Menu } = electronRequire('electron');
 
 let mainWindow: typeof BrowserWindow.prototype | null = null;
 
@@ -159,4 +172,5 @@ app.on('window-all-closed', () => {
 app.on('before-quit', async () => {
   // Emit event to renderer to save state
   mainWindow?.webContents.send('app:before-quit');
+  closeLogger();
 });

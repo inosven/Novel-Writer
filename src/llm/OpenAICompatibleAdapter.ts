@@ -1,3 +1,9 @@
+/**
+ * @module src/llm/OpenAICompatibleAdapter
+ * @description OpenAI 兼容 API 适配器。
+ * 支持所有遵循 OpenAI Chat Completions API 格式的服务（如 Kimi、DeepSeek、vLLM 等）。
+ * 支持自定义 baseUrl、extraBody 参数。
+ */
 import { BaseLLMProvider } from './LLMProvider.js';
 import type { CompletionOptions, LLMConfig } from '../types/index.js';
 
@@ -69,11 +75,18 @@ export class OpenAICompatibleAdapter extends BaseLLMProvider {
       try {
         console.log(`[OpenAICompatibleAdapter] Attempt ${attempt}/${maxRetries} (streaming mode)`);
 
+        // 5 min timeout for reasoning models (Kimi K2.5 etc.) that need long thinking time
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5 * 60 * 1000);
+
         const response = await fetch(`${this.baseUrl}/chat/completions`, {
           method: 'POST',
           headers,
           body: JSON.stringify(body),
+          signal: controller.signal,
         });
+
+        clearTimeout(timeout);
 
         if (!response.ok) {
           const errorText = await response.text();
@@ -227,11 +240,18 @@ export class OpenAICompatibleAdapter extends BaseLLMProvider {
     }
 
     try {
+      // 5 min timeout for reasoning models
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5 * 60 * 1000);
+
       const response = await fetch(`${this.baseUrl}/chat/completions`, {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeout);
 
       if (!response.ok) {
         const errorText = await response.text();

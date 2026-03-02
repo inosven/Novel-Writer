@@ -33,6 +33,9 @@ export default function OutlinePage() {
   const [editingChapter, setEditingChapter] = useState<Chapter | null>(null);
   const [historyVersions, setHistoryVersions] = useState<string[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [showRefineModal, setShowRefineModal] = useState(false);
+  const [refineInput, setRefineInput] = useState('');
+  const [isRefining, setIsRefining] = useState(false);
 
   useEffect(() => {
     if (projectPath) {
@@ -204,6 +207,26 @@ export default function OutlinePage() {
     }
   };
 
+  const handleRefineOutline = async () => {
+    if (!refineInput.trim() || !window.electronAPI) return;
+    setIsRefining(true);
+    try {
+      const refined = await window.electronAPI.outline.refine(refineInput.trim());
+      if (refined) {
+        // Reload the outline to show updated data
+        await loadOutline();
+        setShowRefineModal(false);
+        setRefineInput('');
+        alert('大纲优化完成！');
+      }
+    } catch (error: any) {
+      console.error('Failed to refine outline:', error);
+      alert(`优化失败: ${error?.message || '未知错误'}`);
+    } finally {
+      setIsRefining(false);
+    }
+  };
+
   const getStatusBadge = (status: Chapter['status']) => {
     switch (status) {
       case 'completed':
@@ -258,7 +281,10 @@ export default function OutlinePage() {
             <button className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
               📤 导出
             </button>
-            <button className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
+            <button
+              onClick={() => setShowRefineModal(true)}
+              className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+            >
               🤖 AI 优化建议
             </button>
           </div>
@@ -512,6 +538,77 @@ export default function OutlinePage() {
                 className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
               >
                 保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Refine Modal */}
+      {showRefineModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-lg w-full mx-4">
+            <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-4">
+              🤖 AI 优化大纲
+            </h2>
+
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+              告诉 AI 你想如何优化大纲，例如：为每章添加出场角色、调整章节顺序、补充关键事件等。
+            </p>
+
+            <div className="space-y-3 mb-4">
+              <p className="text-xs text-gray-500 dark:text-gray-400">快捷指令：</p>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  '请为每章添加出场角色',
+                  '补充每章的关键事件',
+                  '优化章节标题使其更吸引人',
+                  '检查情节逻辑是否有漏洞',
+                ].map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    onClick={() => setRefineInput(suggestion)}
+                    className="px-3 py-1 text-xs bg-gray-100 dark:bg-gray-700 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300"
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <textarea
+              value={refineInput}
+              onChange={(e) => setRefineInput(e.target.value)}
+              placeholder="输入你的优化需求..."
+              rows={4}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-white resize-none mb-4"
+              disabled={isRefining}
+            />
+
+            <div className="flex space-x-4">
+              <button
+                onClick={() => {
+                  setShowRefineModal(false);
+                  setRefineInput('');
+                }}
+                disabled={isRefining}
+                className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleRefineOutline}
+                disabled={isRefining || !refineInput.trim()}
+                className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 flex items-center justify-center"
+              >
+                {isRefining ? (
+                  <>
+                    <span className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2" />
+                    AI 优化中...
+                  </>
+                ) : (
+                  '开始优化'
+                )}
               </button>
             </div>
           </div>

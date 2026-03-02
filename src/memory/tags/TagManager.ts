@@ -1,3 +1,9 @@
+/**
+ * @module src/memory/tags/TagManager
+ * @description 标签管理器。
+ * 使用 SQLite 存储内容标签，支持按标签过滤和章节范围查询。
+ * 用于辅助 RAG 检索，通过标签缩小搜索范围。
+ */
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs';

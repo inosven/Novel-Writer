@@ -1,3 +1,10 @@
+/**
+ * @module src/memory/MemorySystem
+ * @description 统一记忆系统。
+ * 整合三个子系统：RAG 向量检索 (LanceDB)、标签管理 (SQLite)、知识图谱 (JSON)。
+ * 提供统一的搜索接口，支持语义搜索、标签过滤和实体查询的组合。
+ * 用于章节写作时的上下文检索和审稿时的事实验证。
+ */
 import * as path from 'path';
 import type {
   MemorySearchResult,

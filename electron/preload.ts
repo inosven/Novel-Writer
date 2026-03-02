@@ -1,3 +1,10 @@
+/**
+ * @module electron/preload
+ * @description Electron 预加载脚本。
+ * 通过 contextBridge 安全地将 IPC 方法暴露给渲染进程。
+ * 渲染进程通过 window.electronAPI 调用后端功能。
+ * 包含完整的 TypeScript 类型定义 (ElectronAPI)。
+ */
 // Electron preload scripts support CommonJS require() natively
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { contextBridge, ipcRenderer } = require('electron');
@@ -46,7 +53,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ============ Writing API ============
   writing: {
     writeChapter: (chapterIndex: number) => ipcRenderer.invoke('writing:write-chapter', chapterIndex),
-    continueWriting: (content: string) => ipcRenderer.invoke('writing:continue', content),
+    continueWriting: (chapterIndex: number, content: string) => ipcRenderer.invoke('writing:continue', chapterIndex, content),
     editChapter: (chapterIndex: number, instruction: string, targetSection?: string) =>
       ipcRenderer.invoke('writing:edit-chapter', chapterIndex, instruction, targetSection),
     reviewChapter: (chapterIndex: number) => ipcRenderer.invoke('writing:review-chapter', chapterIndex),
@@ -83,6 +90,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   outline: {
     get: () => ipcRenderer.invoke('outline:get'),
     update: (updates: any) => ipcRenderer.invoke('outline:update', updates),
+    refine: (feedback: string) => ipcRenderer.invoke('outline:refine', feedback),
     getHistory: () => ipcRenderer.invoke('outline:get-history'),
     restore: (historyId: string) => ipcRenderer.invoke('outline:restore', historyId),
   },
@@ -92,6 +100,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     list: () => ipcRenderer.invoke('chapters:list'),
     get: (index: number) => ipcRenderer.invoke('chapters:get', index),
     update: (index: number, content: string) => ipcRenderer.invoke('chapters:update', index, content),
+    getContent: (index: number) => ipcRenderer.invoke('chapters:get-content', index),
+    reindex: (mapping: { from: number; to: number }[]) => ipcRenderer.invoke('chapters:reindex', mapping),
+    deleteFile: (index: number) => ipcRenderer.invoke('chapters:delete-file', index),
+    // Atomic operations — single call handles files + outline + drafts
+    insert: (afterIndex: number) => ipcRenderer.invoke('chapters:insert', afterIndex),
+    remove: (index: number) => ipcRenderer.invoke('chapters:remove', index),
   },
 
   // ============ Skills API ============
@@ -146,8 +160,8 @@ export interface ElectronAPI {
   };
   writing: {
     writeChapter: (chapterIndex: number) => Promise<any>;
-    continueWriting: (content: string) => Promise<string>;
-    editChapter: (chapterIndex: number, instruction: string, targetSection?: string) => Promise<string>;
+    continueWriting: (chapterIndex: number, content: string) => Promise<string>;
+    editChapter: (chapterIndex: number, instruction: string, targetSection?: string) => Promise<{ content: string; changeSummary: string }>;
     reviewChapter: (chapterIndex: number) => Promise<any>;
     saveDraft: (chapterIndex: number, content: string) => Promise<void>;
     getDraft: (chapterIndex: number) => Promise<string | null>;
@@ -165,6 +179,7 @@ export interface ElectronAPI {
   outline: {
     get: () => Promise<any>;
     update: (updates: any) => Promise<any>;
+    refine: (feedback: string) => Promise<any>;
     getHistory: () => Promise<any[]>;
     restore: (historyId: string) => Promise<any>;
   };
@@ -172,6 +187,11 @@ export interface ElectronAPI {
     list: () => Promise<any[]>;
     get: (index: number) => Promise<string>;
     update: (index: number, content: string) => Promise<void>;
+    getContent: (index: number) => Promise<string>;
+    reindex: (mapping: { from: number; to: number }[]) => Promise<void>;
+    deleteFile: (index: number) => Promise<void>;
+    insert: (afterIndex: number) => Promise<{ outline: any; newIndex: number }>;
+    remove: (index: number) => Promise<any>;
   };
   skills: {
     list: () => Promise<string[]>;

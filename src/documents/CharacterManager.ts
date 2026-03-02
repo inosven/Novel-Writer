@@ -1,4 +1,12 @@
+/**
+ * @module src/documents/CharacterManager
+ * @description 角色管理器。
+ * 提供角色的 CRUD、关系管理、出场记录和一致性检查。
+ * 角色以 Markdown + YAML 前置数据格式存储在 characters/ 目录。
+ * 支持文件名安全处理（中文角色名、特殊字符）和反向兼容查找。
+ */
 import { v4 as uuidv4 } from 'uuid';
+import matter from 'gray-matter';
 import type { Character, CharacterRelationship } from '../types/index.js';
 import { DocumentManager } from './DocumentManager.js';
 
@@ -16,6 +24,7 @@ export class CharacterManager {
    * Create a new character with the given information
    */
   async createCharacter(input: CreateCharacterInput): Promise<Character> {
+    console.log(`[CharacterManager] createCharacter: "${input.name}"`);
     const character: Character = {
       id: uuidv4(),
       name: input.name,
@@ -52,7 +61,12 @@ export class CharacterManager {
     try {
       const content = await this.docManager.getCharacter(name);
       return this.parseCharacterMarkdown(name, content);
-    } catch {
+    } catch (err: any) {
+      if (err?.code === 'ENOENT') {
+        console.warn(`[CharacterManager] Character file not found: "${name}"`);
+      } else {
+        console.error(`[CharacterManager.getCharacter] Error for "${name}":`, err);
+      }
       return null;
     }
   }
@@ -61,6 +75,7 @@ export class CharacterManager {
    * Update an existing character
    */
   async updateCharacter(name: string, updates: Partial<Character>): Promise<Character> {
+    console.log(`[CharacterManager] updateCharacter: "${name}"`);
     const existing = await this.getCharacter(name);
     if (!existing) {
       throw new Error(`Character "${name}" not found`);
@@ -88,6 +103,7 @@ export class CharacterManager {
    * Returns chapters where the character appears (for warning)
    */
   async deleteCharacter(name: string): Promise<{ deleted: boolean; appearsIn: number[] }> {
+    console.log(`[CharacterManager] deleteCharacter: "${name}"`);
     const character = await this.getCharacter(name);
     if (!character) {
       return { deleted: false, appearsIn: [] };
@@ -343,8 +359,7 @@ export class CharacterManager {
    * Parse markdown content to Character object
    */
   private parseCharacterMarkdown(name: string, content: string): Character | null {
-    // Use gray-matter to parse front matter
-    const matter = require('gray-matter');
+    // Use gray-matter to parse front matter (imported at top of file)
     const { data, content: body } = matter(content);
 
     // Parse sections from markdown

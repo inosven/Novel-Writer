@@ -1,3 +1,16 @@
+/**
+ * @module electron/ipc/config
+ * @description 应用配置管理的 IPC 处理器。
+ * 使用 electron-store 持久化 LLM 和嵌入模型配置。
+ * 提供 LLM/Embedding 连接测试和 Ollama 模型列表功能。
+ *
+ * IPC channels:
+ * - config:get              — 获取全部配置
+ * - config:save             — 保存配置（同时热切换 LLM 提供者）
+ * - config:test-llm         — 测试 LLM 连接
+ * - config:test-embedding   — 测试嵌入模型连接
+ * - config:get-ollama-models — 获取 Ollama 可用模型列表
+ */
 import type { IpcMain } from 'electron';
 import StoreModule from 'electron-store';
 import { OrchestratorService } from '../services/OrchestratorService.js';

@@ -1,3 +1,10 @@
+/**
+ * @module electron/services/OrchestratorService
+ * @description Orchestrator 服务层（单例）。
+ * 管理 Orchestrator 的生命周期：创建/销毁、项目初始化/打开、LLM 热切换。
+ * 根据 electron-store 中的配置创建对应的 LLM 适配器。
+ * 同时管理规划会话 (PlanningSession) 的存储。
+ */
 import { Orchestrator, type PlanningSession } from '../../src/core/orchestrator/Orchestrator.js';
 import { ClaudeAdapter } from '../../src/llm/ClaudeAdapter.js';
 import { OpenAIAdapter } from '../../src/llm/OpenAIAdapter.js';

@@ -1,9 +1,25 @@
+/**
+ * @module electron/ipc/project
+ * @description 项目管理的 IPC 处理器。
+ * 提供项目创建、打开、状态查询、检查点管理和技能列表功能。
+ *
+ * IPC channels:
+ * - project:init             — 创建新项目（目录结构 + 模板 + 技能）
+ * - project:open             — 打开已有项目
+ * - project:status           — 获取项目状态
+ * - project:select-folder    — 打开文件夹选择对话框
+ * - project:list-skills      — 列出可用技能
+ * - project:save-checkpoint  — 保存检查点
+ * - project:list-checkpoints — 列出检查点
+ * - project:restore-checkpoint — 恢复检查点
+ */
 import type { IpcMain } from 'electron';
 import { createRequire } from 'module';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { OrchestratorService } from '../services/OrchestratorService.js';
 import { configStore } from './config.js';
+import { setProjectLogPath } from '../utils/logger.js';
 
 const electronRequire = createRequire(import.meta.url);
 const { dialog, app } = electronRequire('electron');
@@ -35,6 +51,7 @@ export function setupProjectIPC(ipcMain: IpcMain) {
   ipcMain.handle('project:init', async (_, projectPath: string, selectedSkill?: string) => {
     await OrchestratorService.initProject(projectPath, selectedSkill);
     configStore.set('project.lastPath', projectPath);
+    setProjectLogPath(projectPath);
   });
 
   // Open an existing project
@@ -43,6 +60,7 @@ export function setupProjectIPC(ipcMain: IpcMain) {
     try {
       await OrchestratorService.openProject(projectPath);
       configStore.set('project.lastPath', projectPath);
+      setProjectLogPath(projectPath);
       console.log('Project opened successfully');
     } catch (error) {
       console.error('Failed to open project:', error);

@@ -1,5 +1,8 @@
 /**
- * Embedding Service that supports multiple providers
+ * @module src/memory/rag/EmbeddingService
+ * @description 嵌入向量服务。
+ * 支持 OpenAI、Ollama 和本地 fallback 三种嵌入提供者。
+ * 将文本转换为向量表示，供 LanceDB 进行语义检索。
  */
 export class EmbeddingService {
   private provider: EmbeddingProvider;
@@ -78,6 +81,15 @@ export class EmbeddingService {
    */
   get dimension(): number {
     return this.provider.dimension;
+  }
+
+  /**
+   * Auto-detect embedding dimension (for providers like Ollama where dimension varies by model)
+   */
+  async detectDimension(): Promise<void> {
+    if ('detectDimension' in this.provider && typeof (this.provider as any).detectDimension === 'function') {
+      await (this.provider as any).detectDimension();
+    }
   }
 
   /**
@@ -188,17 +200,41 @@ class OpenAIEmbedding implements EmbeddingProvider {
 // ============ Ollama Embedding ============
 
 class OllamaEmbedding implements EmbeddingProvider {
-  dimension = 768; // nomic-embed-text default
+  dimension = 768; // default, will be auto-detected on first call
   private model: string;
   private host: string;
+  private dimensionDetected = false;
 
   constructor(model?: string, host?: string) {
     this.model = model || 'nomic-embed-text';
     this.host = host || 'http://localhost:11434';
 
-    // Adjust dimension based on model
-    if (this.model === 'mxbai-embed-large') {
-      this.dimension = 1024;
+    // Known model dimensions
+    const knownDimensions: Record<string, number> = {
+      'nomic-embed-text': 768,
+      'mxbai-embed-large': 1024,
+      'all-minilm': 384,
+      'snowflake-arctic-embed': 1024,
+    };
+
+    // Check known dimensions first (without version suffix)
+    const baseName = this.model.replace(/:.*$/, '');
+    if (knownDimensions[baseName]) {
+      this.dimension = knownDimensions[baseName];
+    }
+  }
+
+  /**
+   * Auto-detect embedding dimension by making a test call
+   */
+  async detectDimension(): Promise<void> {
+    if (this.dimensionDetected) return;
+    try {
+      const embedding = await this.embed('dimension detection');
+      this.dimension = embedding.length;
+      this.dimensionDetected = true;
+    } catch {
+      // Keep default dimension if detection fails
     }
   }
 
@@ -218,7 +254,15 @@ class OllamaEmbedding implements EmbeddingProvider {
     }
 
     const data = await response.json();
-    return data.embedding;
+    const embedding = data.embedding;
+
+    // Auto-update dimension on first successful call
+    if (!this.dimensionDetected && embedding?.length) {
+      this.dimension = embedding.length;
+      this.dimensionDetected = true;
+    }
+
+    return embedding;
   }
 
   async embedBatch(texts: string[]): Promise<number[][]> {

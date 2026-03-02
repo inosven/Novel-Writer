@@ -34,7 +34,7 @@ interface HistoryEntry {
 }
 
 export default function Planning() {
-  const { projectPath } = useProjectStore();
+  const { projectPath, status: projectStatus, refreshStatus } = useProjectStore();
   const [session, setSession] = useState<PlanningSession | null>(null);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -355,22 +355,39 @@ export default function Planning() {
     try {
       const result = await window.electronAPI.planning.generateOutline(session.id);
       console.log('generateOutline result:', result);
+      console.log('generateOutline outlineDraft length:', result?.outlineDraft?.length);
 
       // result is a PlanningSession, outline is in outlineDraft
       const outline = result.outlineDraft || '';
 
+      let messageContent: string;
+      if (outline.length > 50) {
+        messageContent = `我已经根据我们的讨论生成了大纲草案：\n\n${outline}\n\n你觉得这个大纲怎么样？需要修改哪些部分？`;
+      } else {
+        messageContent = '大纲生成结果为空或过短，可能是模型响应异常。请点击「重新生成大纲」重试。';
+      }
+
       const assistantMessage: Message = {
         id: Date.now().toString(),
         role: 'assistant',
-        content: `我已经根据我们的讨论生成了大纲草案：\n\n${outline}\n\n你觉得这个大纲怎么样？需要修改哪些部分？`,
+        content: messageContent,
         timestamp: new Date(),
       };
+
+      const updatedMessages = [...(session.messages || []), assistantMessage];
+
       setSession(prev => prev ? {
         ...prev,
-        messages: [...(prev.messages || []), assistantMessage],
+        messages: updatedMessages,
         phase: 'outline',
         outlineDraft: outline,
       } : null);
+
+      // Save the full session (with messages) to backend so it persists
+      await window.electronAPI.planning.saveSession({
+        ...result,
+        messages: updatedMessages,
+      });
     } catch (error: any) {
       console.error('Failed to generate outline:', error);
       const errorMsg: Message = {
@@ -466,6 +483,107 @@ export default function Planning() {
       } : null);
     } catch (error) {
       console.error('Failed to finalize:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Re-generate outline and re-save it (preserves conversation history)
+  const handleReGenerateOutline = async () => {
+    if (!session || !window.electronAPI) return;
+    if (!confirm('确定要重新生成大纲吗？现有大纲将被替换，但对话记录会保留。')) return;
+    setIsLoading(true);
+
+    const statusMsg: Message = {
+      id: Date.now().toString(),
+      role: 'assistant',
+      content: '正在重新生成大纲，这可能需要一些时间...',
+      timestamp: new Date(),
+    };
+    setSession(prev => prev ? {
+      ...prev,
+      messages: [...(prev.messages || []), statusMsg],
+    } : null);
+
+    try {
+      // Step 1: regenerate outline from existing session context
+      const result = await window.electronAPI.planning.generateOutline(session.id);
+      const outline = result.outlineDraft || '';
+
+      if (outline.length < 50) {
+        alert('大纲生成结果为空或过短，请稍后重试。');
+        return;
+      }
+
+      // Step 2: re-finalize to save outline file (preserve existing characters)
+      const characters = (session.characterSuggestions || []).map((c: any) => ({
+        name: typeof c === 'string' ? c : c.name,
+        profile: typeof c === 'string' ? c : JSON.stringify(c),
+      }));
+      await window.electronAPI.planning.finalize(session.id, outline, characters);
+
+      // Step 3: update local state with new outline
+      const doneMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: `大纲已重新生成并保存！\n\n${outline.substring(0, 500)}${outline.length > 500 ? '\n\n...(内容已截断，完整大纲请查看大纲页面)' : ''}`,
+        timestamp: new Date(),
+      };
+      setSession(prev => prev ? {
+        ...prev,
+        messages: [...(prev.messages || []), doneMsg],
+        outlineDraft: outline,
+      } : null);
+
+      // Save messages to backend
+      await window.electronAPI.planning.saveSession({
+        ...result,
+        phase: 'finalized',
+        messages: [...(session.messages || []), statusMsg, doneMsg],
+        characterSuggestions: session.characterSuggestions,
+      });
+
+      await refreshStatus();
+      alert('✅ 大纲已重新生成并保存，请查看大纲页面。');
+    } catch (error: any) {
+      console.error('Failed to regenerate outline:', error);
+      alert('重新生成大纲失败：' + (error?.message || '未知错误'));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Re-generate characters and re-save them (for use when finalized but characters are empty)
+  const handleReGenerateCharacters = async () => {
+    if (!session || !window.electronAPI) return;
+    if (!session.outlineDraft) {
+      alert('找不到大纲内容，无法重新生成角色。');
+      return;
+    }
+    setIsLoading(true);
+    try {
+      // Step 1: generate character suggestions
+      const result = await window.electronAPI.planning.suggestCharacters(session.id);
+      const characters = result.characterSuggestions || [];
+
+      if (characters.length === 0) {
+        alert('角色生成结果为空，请稍后重试。');
+        return;
+      }
+
+      // Step 2: re-finalize to save character files
+      const charData = characters.map((c: any) => ({
+        name: typeof c === 'string' ? c : c.name,
+        profile: typeof c === 'string' ? c : JSON.stringify(c),
+      }));
+      await window.electronAPI.planning.finalize(session.id, session.outlineDraft, charData);
+
+      // Step 3: update local state and refresh project status
+      setSession(prev => prev ? { ...prev, characterSuggestions: characters } : null);
+      await refreshStatus();
+      alert(`✅ 已成功生成并保存 ${characters.length} 个角色，请切换到「角色」页面查看。`);
+    } catch (error: any) {
+      alert('重新生成角色失败：' + (error?.message || '未知错误'));
     } finally {
       setIsLoading(false);
     }
@@ -631,24 +749,27 @@ export default function Planning() {
                   📋 {session.phase === 'outline' ? '重新生成大纲' : '生成大纲'}
                 </button>
               )}
-              {/* Suggest characters - available in outline phase when outline exists */}
-              {session.phase === 'outline' && session.outlineDraft && (
+              {/* Suggest characters - available in outline AND characters phases (retry if empty) */}
+              {(session.phase === 'outline' || session.phase === 'characters') && session.outlineDraft && (
                 <button
                   onClick={handleSuggestCharacters}
                   disabled={isLoading}
                   className="px-3 py-1 bg-green-500 text-white rounded-lg text-sm hover:bg-green-600 disabled:opacity-50"
                 >
-                  👥 建议角色
+                  👥 {session.phase === 'characters' && (session.characterSuggestions?.length ?? 0) > 0 ? '重新生成角色' : '建议角色'}
                 </button>
               )}
-              {/* Back to collecting phase */}
+              {/* Back button: from characters → outline, from outline → collecting */}
               {(session.phase === 'outline' || session.phase === 'characters') && (
                 <button
-                  onClick={() => setSession(prev => prev ? { ...prev, phase: 'collecting' } : null)}
+                  onClick={() => setSession(prev => prev ? {
+                    ...prev,
+                    phase: prev.phase === 'characters' ? 'outline' : 'collecting',
+                  } : null)}
                   disabled={isLoading}
                   className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700"
                 >
-                  ← 回到对话
+                  ← {session.phase === 'characters' ? '回到大纲' : '回到对话'}
                 </button>
               )}
               {session.phase === 'characters' && (
@@ -674,6 +795,48 @@ export default function Planning() {
               >
                 📂 历史记录
               </button>
+            </div>
+          )}
+
+          {/* Finalized state banner */}
+          {session?.phase === 'finalized' && (
+            <div className="mb-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-green-700 dark:text-green-300">
+                  ✅ 规划已完成！可前往大纲、角色或写作页面继续。
+                </span>
+                <div className="flex gap-2 ml-3">
+                  <button
+                    onClick={() => { setShowHistory(!showHistory); if (!showHistory) loadHistory(); }}
+                    className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700"
+                  >
+                    📂 历史记录
+                  </button>
+                  <button
+                    onClick={handleReset}
+                    className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700"
+                  >
+                    🔄 开始新故事
+                  </button>
+                </div>
+              </div>
+              {/* Regenerate buttons in finalized state */}
+              <div className="mt-2 flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={handleReGenerateOutline}
+                  disabled={isLoading}
+                  className="px-3 py-1 bg-amber-500 text-white rounded-lg text-xs hover:bg-amber-600 disabled:opacity-50"
+                >
+                  {isLoading ? '生成中...' : '📋 重新生成大纲'}
+                </button>
+                <button
+                  onClick={handleReGenerateCharacters}
+                  disabled={isLoading}
+                  className="px-3 py-1 bg-amber-500 text-white rounded-lg text-xs hover:bg-amber-600 disabled:opacity-50"
+                >
+                  {isLoading ? '生成中...' : '👥 重新生成角色'}
+                </button>
+              </div>
             </div>
           )}
 

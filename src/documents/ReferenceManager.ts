@@ -1,3 +1,10 @@
+/**
+ * @module src/documents/ReferenceManager
+ * @description 参考资料管理器。
+ * 管理两类参考材料：Ground Truth（事实依据）和 Style（风格参考）。
+ * 资料可来自项目级 references/ 或技能级 skill/references/ 目录。
+ * 通过索引文件 (.state/references-index.json) 追踪所有参考资料。
+ */
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
@@ -21,12 +28,14 @@ export class ReferenceManager {
    * Scans directories and builds the index
    */
   async initialize(): Promise<void> {
+    console.log(`[ReferenceManager] initialize: ${this.projectPath}`);
     // Ensure state directory exists
     const stateDir = path.dirname(this.indexPath);
     await fs.mkdir(stateDir, { recursive: true });
 
     // Scan and index existing reference files
-    await this.scanAndIndex();
+    const refs = await this.scanAndIndex();
+    console.log(`[ReferenceManager] initialize: indexed ${refs.length} references`);
   }
 
   /**

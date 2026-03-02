@@ -1,3 +1,7 @@
+/**
+ * @module src/llm/OpenAIAdapter
+ * @description OpenAI API 适配器。使用 OpenAI SDK 调用 GPT 系列模型。
+ */
 import OpenAI from 'openai';
 import { BaseLLMProvider } from './LLMProvider.js';
 import type { CompletionOptions, LLMConfig } from '../types/index.js';

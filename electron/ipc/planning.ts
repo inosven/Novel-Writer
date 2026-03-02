@@ -1,3 +1,23 @@
+/**
+ * @module electron/ipc/planning
+ * @description 故事规划流程的 IPC 处理器。
+ * 管理多轮对话式策划：需求收集 → 大纲生成 → 角色建议 → 定稿。
+ * 规划会话通过 electron-store 持久化，支持历史回溯。
+ *
+ * IPC channels:
+ * - planning:start               — 开始新的规划会话
+ * - planning:continue            — 继续多轮对话
+ * - planning:generate-outline    — 生成大纲草案
+ * - planning:refine-outline      — 根据反馈修改大纲
+ * - planning:suggest-characters  — AI 建议角色
+ * - planning:design-character    — AI 设计角色详情
+ * - planning:finalize            — 定稿（保存大纲和角色）
+ * - planning:get-session         — 获取当前规划会话
+ * - planning:save-session        — 保存规划会话
+ * - planning:list-history        — 列出规划历史
+ * - planning:restore-from-history — 恢复历史规划
+ * - planning:delete-history      — 删除规划历史
+ */
 import type { IpcMain } from 'electron';
 import { OrchestratorService } from '../services/OrchestratorService.js';
 import StoreModule from 'electron-store';
@@ -17,7 +37,7 @@ const historyStore = new Store({
   projectName: 'novel-writer',
 });
 
-const MAX_HISTORY = 20;
+const MAX_HISTORY = 50;
 
 /**
  * Backup the current session to history before it gets overwritten or cleared.
@@ -36,16 +56,36 @@ function backupCurrentSession() {
 
     if (!hasUserMessages && !hasOutline && !hasAnswers) return;
 
+    saveSessionToHistory(current);
+  } catch (error) {
+    console.error('[Planning] Failed to backup session:', error);
+  }
+}
+
+/**
+ * Save/update a session in history.
+ * If same session ID exists, UPDATE it (keep latest version).
+ * If new session ID, INSERT at front.
+ * Called after every meaningful save so history always has the latest state.
+ */
+function saveSessionToHistory(session: any) {
+  try {
+    if (!session || !session.id) return;
+
     const history: any[] = (historyStore.get('sessions') as any[]) || [];
 
-    // Don't duplicate if the same session ID already exists in history
-    if (history.some((h: any) => h.id === current.id)) return;
+    session.backedUpAt = new Date().toISOString();
 
-    // Add timestamp for display
-    current.backedUpAt = new Date().toISOString();
+    // Find existing entry for this session
+    const existingIdx = history.findIndex((h: any) => h.id === session.id);
 
-    // Add to front of history
-    history.unshift(current);
+    if (existingIdx !== -1) {
+      // UPDATE existing entry with latest data
+      history[existingIdx] = session;
+    } else {
+      // INSERT new entry at front
+      history.unshift(session);
+    }
 
     // Keep only the most recent sessions
     if (history.length > MAX_HISTORY) {
@@ -53,9 +93,9 @@ function backupCurrentSession() {
     }
 
     historyStore.set('sessions', history);
-    console.log(`[Planning] Backed up session ${current.id} to history (${history.length} total)`);
+    console.log(`[Planning] Saved session ${session.id} to history (${existingIdx !== -1 ? 'updated' : 'new'}, ${history.length} total)`);
   } catch (error) {
-    console.error('[Planning] Failed to backup session:', error);
+    console.error('[Planning] Failed to save session to history:', error);
   }
 }
 
@@ -75,6 +115,7 @@ export function setupPlanningIPC(ipcMain: IpcMain) {
 
     // Persist session
     sessionStore.set('session', session);
+    saveSessionToHistory(session);
 
     return session;
   });
@@ -111,6 +152,7 @@ export function setupPlanningIPC(ipcMain: IpcMain) {
 
     // Persist session
     sessionStore.set('session', session);
+    saveSessionToHistory(session);
     console.log('planning:continue session saved to store');
 
     return session;
@@ -139,6 +181,7 @@ export function setupPlanningIPC(ipcMain: IpcMain) {
 
       // Persist session
       sessionStore.set('session', session);
+      saveSessionToHistory(session);
 
       console.log('[planning:generate-outline] Success, outlineDraft length:', session.outlineDraft?.length);
       return session;
@@ -165,6 +208,7 @@ export function setupPlanningIPC(ipcMain: IpcMain) {
 
     // Persist session
     sessionStore.set('session', session);
+    saveSessionToHistory(session);
 
     return session;
   });
@@ -186,6 +230,7 @@ export function setupPlanningIPC(ipcMain: IpcMain) {
 
     // Persist session
     sessionStore.set('session', session);
+    saveSessionToHistory(session);
 
     return session;
   });
@@ -219,9 +264,12 @@ export function setupPlanningIPC(ipcMain: IpcMain) {
 
     await orchestrator.finalizePlanning(session, outline, characters);
 
-    // Clear session
-    OrchestratorService.setPlanningSession(null);
-    sessionStore.delete('session');
+    // Mark session as finalized and keep in storage so the conversation
+    // persists across restarts. User can start fresh via the reset button.
+    (session as any).phase = 'finalized';
+    OrchestratorService.setPlanningSession(session);
+    sessionStore.set('session', session);
+    saveSessionToHistory(session);
   });
 
   // Get current session (for recovery)
@@ -256,6 +304,7 @@ export function setupPlanningIPC(ipcMain: IpcMain) {
     } else {
       OrchestratorService.setPlanningSession(session);
       sessionStore.set('session', session);
+      saveSessionToHistory(session);
     }
   });
 

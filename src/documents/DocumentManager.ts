@@ -1,3 +1,10 @@
+/**
+ * @module src/documents/DocumentManager
+ * @description 文件系统操作层。
+ * 封装所有文件 I/O 操作：章节文件读写、角色文件读写、大纲读写、章节摘要持久化。
+ * 提供章节文件重编号（两阶段重命名避免冲突）和全文检索（grepChapters）。
+ * 文件名约定：Chapter-01.md, Chapter-02.md（1-based, 零填充两位）。
+ */
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import matter from 'gray-matter';
@@ -134,24 +141,159 @@ export class DocumentManager {
     await this.writeFile('chapter_index.md', lines.join('\n'));
   }
 
+  /**
+   * Reindex chapter files: rename Chapter-XX.md → Chapter-YY.md per mapping.
+   * Uses temp names to avoid overwrite conflicts.
+   * Also reindexes chapter-summaries.json keys.
+   */
+  async reindexChapterFiles(mapping: { from: number; to: number }[]): Promise<void> {
+    if (mapping.length === 0) return;
+    const chaptersDir = path.join(this.projectPath, 'chapters');
+    console.log(`[DocumentManager] reindexChapterFiles:`, mapping);
+
+    // Phase 1: rename all source files to temp names
+    for (const { from } of mapping) {
+      const srcFile = path.join(chaptersDir, this.formatChapterFilename(from));
+      const tmpFile = srcFile + '.tmp';
+      try {
+        await fs.rename(srcFile, tmpFile);
+        console.log(`[DocumentManager]   rename ${this.formatChapterFilename(from)} → .tmp OK`);
+      } catch {
+        console.log(`[DocumentManager]   rename ${this.formatChapterFilename(from)} → .tmp SKIP (not found)`);
+      }
+    }
+
+    // Phase 2: rename temp files to target names
+    for (const { from, to } of mapping) {
+      const tmpFile = path.join(chaptersDir, this.formatChapterFilename(from) + '.tmp');
+      const destFile = path.join(chaptersDir, this.formatChapterFilename(to));
+      try {
+        await fs.rename(tmpFile, destFile);
+        console.log(`[DocumentManager]   rename .tmp → ${this.formatChapterFilename(to)} OK`);
+      } catch {
+        console.log(`[DocumentManager]   rename .tmp → ${this.formatChapterFilename(to)} SKIP (not found)`);
+      }
+    }
+
+    // Phase 3: reindex chapter summaries
+    try {
+      const summaries = await this.loadAllChapterSummaries();
+      const newSummaries: Record<number, any> = {};
+      for (const [key, value] of Object.entries(summaries)) {
+        const oldIdx = parseInt(key, 10);
+        const entry = mapping.find(m => m.from === oldIdx);
+        if (entry) {
+          newSummaries[entry.to] = value;
+        } else {
+          newSummaries[oldIdx] = value;
+        }
+      }
+      await this.writeFile('.state/chapter-summaries.json', JSON.stringify(newSummaries, null, 2));
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  /**
+   * Delete a chapter file and its summary.
+   */
+  async deleteChapterFile(index: number): Promise<void> {
+    const filename = this.formatChapterFilename(index);
+    const filePath = path.join(this.projectPath, 'chapters', filename);
+    console.log(`[DocumentManager] deleteChapterFile: ${filename}`);
+    try {
+      await fs.unlink(filePath);
+      console.log(`[DocumentManager]   deleted OK`);
+    } catch (err: any) {
+      console.log(`[DocumentManager]   delete SKIP: ${err?.code || err}`);
+    }
+
+    // Remove from summaries
+    try {
+      const summaries = await this.loadAllChapterSummaries();
+      delete summaries[index];
+      await this.writeFile('.state/chapter-summaries.json', JSON.stringify(summaries, null, 2));
+    } catch {
+      // Non-fatal
+    }
+  }
+
   // ============ Character Operations ============
 
+  /**
+   * Sanitize a character name to make it safe for use as a filename.
+   * Keeps Chinese characters and basic alphanumerics, removes problematic chars.
+   */
+  private sanitizeCharacterFilename(name: string): string {
+    return name
+      .replace(/[（(）)【】\[\]{}<>《》\/\\:*?"<>|]/g, '') // Remove brackets, special FS chars
+      .replace(/\s+/g, '_')  // Spaces to underscores
+      .trim() || 'unnamed';
+  }
+
   async getCharacter(name: string): Promise<string> {
-    return this.readFile(`characters/${name}.md`);
+    const safeName = this.sanitizeCharacterFilename(name);
+
+    // Try sanitized name first
+    if (await this.fileExists(`characters/${safeName}.md`)) {
+      return this.readFile(`characters/${safeName}.md`);
+    }
+
+    // Try original name (for backward compat with existing files)
+    if (await this.fileExists(`characters/${name}.md`)) {
+      return this.readFile(`characters/${name}.md`);
+    }
+
+    // Fallback: scan all character files and match by frontmatter name
+    const files = await this.listFiles('characters', /\.md$/);
+    for (const file of files) {
+      try {
+        const content = await this.readFile(`characters/${file}`);
+        const { data } = matter(content);
+        if (data.name === name) {
+          return content;
+        }
+      } catch {
+        // skip unreadable files
+      }
+    }
+
+    throw Object.assign(new Error(`Character "${name}" not found`), { code: 'ENOENT' });
   }
 
   async saveCharacter(name: string, content: string): Promise<void> {
-    await this.writeFile(`characters/${name}.md`, content);
+    const safeName = this.sanitizeCharacterFilename(name);
+    await this.writeFile(`characters/${safeName}.md`, content);
   }
 
   async deleteCharacter(name: string): Promise<void> {
-    const fullPath = path.join(this.projectPath, `characters/${name}.md`);
-    await fs.unlink(fullPath);
+    const safeName = this.sanitizeCharacterFilename(name);
+    // Try sanitized name first, then original
+    for (const tryName of [safeName, name]) {
+      const fullPath = path.join(this.projectPath, `characters/${tryName}.md`);
+      try {
+        await fs.unlink(fullPath);
+        return;
+      } catch {
+        // try next
+      }
+    }
   }
 
   async listCharacters(): Promise<string[]> {
     const files = await this.listFiles('characters', /\.md$/);
-    return files.map(f => f.replace('.md', ''));
+    const names: string[] = [];
+    for (const file of files) {
+      try {
+        const content = await this.readFile(`characters/${file}`);
+        const { data } = matter(content);
+        // Use frontmatter name if available, otherwise filename
+        names.push(data.name || file.replace('.md', ''));
+      } catch {
+        names.push(file.replace('.md', ''));
+      }
+    }
+    return names;
   }
 
   async getCharacters(): Promise<Character[]> {
@@ -344,6 +486,53 @@ export class DocumentManager {
     } catch {
       return '';
     }
+  }
+
+  /**
+   * Search across all chapters for keyword matches, returning surrounding context.
+   * Like grep with context lines.
+   */
+  async grepChapters(
+    keywords: string[],
+    options: { contextChars?: number; maxResults?: number; excludeChapter?: number } = {}
+  ): Promise<Array<{ chapterIndex: number; keyword: string; snippet: string }>> {
+    const { contextChars = 100, maxResults = 10, excludeChapter } = options;
+    const results: Array<{ chapterIndex: number; keyword: string; snippet: string }> = [];
+    const chapters = await this.listChapters();
+
+    for (const file of chapters) {
+      const match = file.match(/Chapter-(\d+)\.md/);
+      if (!match) continue;
+      const idx = parseInt(match[1], 10);
+      if (idx === excludeChapter) continue;
+
+      try {
+        const raw = await this.readFile(`chapters/${file}`);
+        const { content } = matter(raw);
+
+        for (const keyword of keywords) {
+          if (!keyword || keyword.length < 2) continue;
+          let searchFrom = 0;
+          while (results.length < maxResults) {
+            const pos = content.indexOf(keyword, searchFrom);
+            if (pos === -1) break;
+
+            const start = Math.max(0, pos - contextChars);
+            const end = Math.min(content.length, pos + keyword.length + contextChars);
+            const snippet = (start > 0 ? '...' : '') + content.substring(start, end).trim() + (end < content.length ? '...' : '');
+
+            results.push({ chapterIndex: idx, keyword, snippet });
+            searchFrom = pos + keyword.length;
+          }
+          if (results.length >= maxResults) break;
+        }
+      } catch {
+        // skip unreadable chapters
+      }
+      if (results.length >= maxResults) break;
+    }
+
+    return results;
   }
 
   private countWords(text: string): number {

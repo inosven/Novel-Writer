@@ -1,3 +1,9 @@
+/**
+ * @module src/llm/ModelRouter
+ * @description 模型路由器。
+ * 根据任务类型（写作、审稿、编辑等）选择最合适的模型。
+ * 支持为不同任务配置不同的模型，优化成本和质量。
+ */
 import type { LLMProvider, LLMConfig, AgentTask } from '../types/index.js';
 import { createLLMProvider } from './LLMProvider.js';
 
