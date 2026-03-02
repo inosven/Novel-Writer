@@ -1,5 +1,7 @@
 # NovelWriter - AI Novel Writing Assistant
 
+English | **[中文](README.md)**
+
 A desktop application built with Electron + React + TypeScript for AI-assisted novel writing. It integrates multi-agent collaboration, knowledge graphs, and RAG retrieval to help authors complete long-form fiction from concept to final draft.
 
 ## Features

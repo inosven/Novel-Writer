@@ -1,5 +1,7 @@
 # NovelWriter - AI 小说创作助手
 
+**[English](README.en.md)** | 中文
+
 一个基于 Electron + React + TypeScript 的 AI 辅助小说创作桌面应用。集成多 Agent 协作、知识图谱、RAG 检索等能力，帮助作者从构思到成稿完成长篇小说创作。
 
 ## 功能特性
