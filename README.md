@@ -208,13 +208,44 @@ npm run electron:build:linux
 全系统统一使用 **1-based 索引**：第 1 章 = index 1，文件名 `Chapter-01.md`。
 
 ### 技能系统 (Skills)
-技能是一组写作风格预设，包含：
-- `config.yaml` — 风格参数（语调、对话占比、节奏等）
-- `outline-method.md` — 大纲设计方法论
-- `character-method.md` — 角色设计方法论
-- `output-style.md` — 文风规范
-- `templates/` — 输出模板
-- `examples/` — 风格示例
+
+技能包是一组写作风格预设，决定了 AI 的写作方法论、文风规范和审稿标准。项目内置了一个 `sanguo-xuanyi`（三国悬疑）技能包作为示例，**你需要参考它来创建自己题材的技能包**。
+
+#### 技能包目录结构
+
+```
+my-skill/
+├── SKILL.md                  # 技能包入口 — 元数据、配置（YAML）、说明
+├── outline-method.md         # 大纲设计方法论（必需）
+├── character-method.md       # 角色设计方法论（必需）
+├── writing-method.md         # 写作技法指南
+├── output-style.md           # 文风规范（必需）
+├── review-rules.md           # 审稿规则
+├── templates/                # 输出模板
+│   ├── outline-template.md   #   大纲模板
+│   ├── character-template.md #   角色模板
+│   └── chapter-template.md   #   章节模板
+├── examples/                 # 风格示例
+│   ├── example-outline.md    #   大纲示例
+│   ├── example-chapter.md    #   章节示例
+│   └── example-dialogue.md   #   对话示例
+└── references/               # 参考资料
+    ├── ground-truth/         #   硬约束（不可违背的事实）
+    └── style-refs/           #   风格参考（文风学习用）
+```
+
+#### 创建自定义技能包
+
+1. **学习示例** — 阅读 `templates/default-project/.claude/skills/sanguo-xuanyi/` 下的所有文件，理解每个文件的用途和格式
+2. **创建目录** — 在以下位置创建你的技能包文件夹：
+   - **全局模板**（新建项目可选）：`templates/default-project/.claude/skills/你的技能包名/`
+   - **当前项目**（仅当前项目使用）：`你的项目路径/.claude/skills/你的技能包名/`
+3. **编写 SKILL.md** — 参考示例，填写元数据和 YAML 配置（语调、节奏、章节字数等）
+4. **编写方法论** — 撰写大纲方法论、角色方法论、文风规范等核心文件
+5. **添加参考资料** — 在 `references/ground-truth/` 放入不可违背的事实资料，在 `references/style-refs/` 放入文风参考片段
+6. **在设置页选择** — 启动应用后，在设置页面切换到你的技能包
+
+> **提示**：`SKILL.md` 中的 YAML `Configuration` 块定义了关键参数（每章字数、对话占比、审稿严格度等），这些参数会影响 AI 的写作行为。请根据你的题材仔细调整。
 
 ### 章节管理
 - **插入章节** — 在任意位置插入新章节，后续章节自动重编号

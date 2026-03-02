@@ -208,13 +208,44 @@ npm run electron:build:linux
 The entire system uses **1-based indexing**: Chapter 1 = index 1, filename `Chapter-01.md`.
 
 ### Skill System
-A Skill is a writing style preset package containing:
-- `config.yaml` — Style parameters (tone, dialogue ratio, pacing, etc.)
-- `outline-method.md` — Outline design methodology
-- `character-method.md` — Character design methodology
-- `output-style.md` — Writing style specification
-- `templates/` — Output templates
-- `examples/` — Style examples
+
+A Skill pack is a set of writing style presets that define the AI's writing methodology, style guidelines, and review standards. The project includes a built-in `sanguo-xuanyi` (Three Kingdoms Mystery) skill pack as an example — **you should study it and create your own skill pack for your genre**.
+
+#### Skill Pack Directory Structure
+
+```
+my-skill/
+├── SKILL.md                  # Entry point — metadata, config (YAML), description
+├── outline-method.md         # Outline design methodology (required)
+├── character-method.md       # Character design methodology (required)
+├── writing-method.md         # Writing technique guide
+├── output-style.md           # Writing style specification (required)
+├── review-rules.md           # Review rules
+├── templates/                # Output templates
+│   ├── outline-template.md   #   Outline template
+│   ├── character-template.md #   Character template
+│   └── chapter-template.md   #   Chapter template
+├── examples/                 # Style examples
+│   ├── example-outline.md    #   Outline example
+│   ├── example-chapter.md    #   Chapter example
+│   └── example-dialogue.md   #   Dialogue example
+└── references/               # Reference materials
+    ├── ground-truth/         #   Hard constraints (facts that must not be violated)
+    └── style-refs/           #   Style references (for learning tone & voice)
+```
+
+#### Creating a Custom Skill Pack
+
+1. **Study the example** — Read all files under `templates/default-project/.claude/skills/sanguo-xuanyi/` to understand the purpose and format of each file
+2. **Create the directory** — Place your skill pack folder in one of these locations:
+   - **Global template** (available when creating new projects): `templates/default-project/.claude/skills/your-skill-name/`
+   - **Current project only**: `your-project-path/.claude/skills/your-skill-name/`
+3. **Write SKILL.md** — Follow the example format: fill in metadata and the YAML configuration block (tone, pacing, word count per chapter, etc.)
+4. **Write methodology files** — Create outline methodology, character methodology, style specification, and other core files
+5. **Add reference materials** — Place hard-constraint facts in `references/ground-truth/`, style reference excerpts in `references/style-refs/`
+6. **Select in Settings** — Launch the app and switch to your skill pack on the Settings page
+
+> **Tip**: The YAML `Configuration` block in `SKILL.md` defines key parameters (word count per chapter, dialogue ratio, review strictness, etc.) that affect the AI's writing behavior. Tune these carefully for your genre.
 
 ### Chapter Management
 - **Insert Chapter** — Insert a new chapter at any position; subsequent chapters are automatically renumbered
