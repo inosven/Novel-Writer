@@ -18,7 +18,7 @@
 
 1. 用"故事账本"加分层上下文解决连贯性，不依赖检索。
 2. 每一步模型看到的上下文由脚本确定性组装，可离线测试。
-3. 题材无关，题材由技能包提供。
+3. 题材无关，题材由技能包提供。plugin 本体不含任何题材相关的提示词；附带一个题材中性的 `general` 包和一个 `sanguo-xuanyi` 示例包。
 4. 零 LLM 调用代码，零外部服务依赖。
 
 ## 2. 小说项目目录
@@ -236,7 +236,7 @@ plugin/
 
 | 命令 | 行为 | 子代理 |
 |---|---|---|
-| `/novel:init [题材包]` | 在当前目录创建第 2 节的目录结构，复制 `templates/` 下的 `novel.yaml`、`CLAUDE.md`、空账本，复制指定题材包到 `.claude/skills/`。目录非空时先确认。 | 无 |
+| `/novel:init [题材包]` | 在当前目录创建第 2 节的目录结构，复制 `templates/` 下的 `novel.yaml`、`CLAUDE.md`、空账本，复制指定题材包到 `.claude/skills/` 并写入 `novel.yaml` 的 `skill` 字段。不带参数时用 `general`。目录非空时先确认。 | 无 |
 | `/novel:plan` | 在主对话中按题材包 `outline-method.md` 提问，定稿后写 `outline.md`；再按 `character-method.md` 逐个写 `characters/*.md`；最后从大纲和档案抽硬设定写 `bible/facts.md`，`state.md` 写成"截至第0章"的初始状态。已有 `outline.md` 时先读再改。 | 无 |
 | `/novel:write N` | 运行 `context.sh N write`，失败则把错误信息给用户并停止。成功则派 writer 子代理，把脚本输出作为提示词主体。子代理写 `chapters/Chapter-NN.md` 并返回不超过 5 行的说明：推进了哪些伏笔、是否偏离大纲、字数。然后停下。已存在正文时先确认是否覆盖。 | writer |
 | `/novel:review N` | 运行 `context.sh N review`，派 reviewer 子代理，写 `reviews/Chapter-NN.md`。主对话只显示各级问题数量和 critical 的一句话列表。 | reviewer |
@@ -259,6 +259,8 @@ plugin/
 
 ### 4.4 skills
 
+plugin 本体的两个 skill 必须题材中性。任何提到具体时代、流派、作家文风的内容只能出现在题材包里。
+
 - **story-bible**：账本四个文件的格式（第 3 节）、更新规则、常见错误。archivist 更新账本时引用，reviewer 判断矛盾时引用。
 - **novel-writing**：题材无关的章节写作要求：承接上章末尾、只用大纲角色、不解释前情、章末留钩子、对话与叙述比例参考 `novel.yaml`、字数区间。writer 引用。题材相关的文风全部来自题材包的 `writing-method.md` 和 `output-style.md`。
 
@@ -274,7 +276,7 @@ plugin/
 4. 出场角色档案：本章大纲"出场角色"里每个名字对应的 `characters/<名>.md` 全文；找不到文件的名字单独列出
 5. 上一章末尾：`chapters/Chapter-(N-1).md` 最后 800 字（N=1 时省略）
 6. 前文摘要：`summaries/` 中第 1 到 N-1 章的全文，按序
-7. 题材包：`.claude/skills/<skill>/writing-method.md` 和 `output-style.md`
+7. 题材包：`.claude/skills/<skill>/writing-method.md` 和 `output-style.md`；`review` 模式再加 `review-rules.md`（存在时）
 
 `review` 模式追加：
 
@@ -285,6 +287,7 @@ plugin/
 
 - `novel.yaml` 不存在
 - `write` 模式下账本"截至"不等于 N-1
+- `novel.yaml` 指定的题材包目录不存在
 - `review` 模式下 `chapters/Chapter-NN.md` 不存在
 - `outline.md` 里找不到第 N 章条目
 
@@ -303,7 +306,8 @@ plugin/
 ### 4.7 templates
 
 - `novel.yaml`、`CLAUDE.md`、`bible/` 四个空模板（`state.md` 为"截至第0章"）。
-- `skills/sanguo-xuanyi/`：从 `templates/default-project/.claude/skills/sanguo-xuanyi/` 原样搬来，`SKILL.md` 补上 frontmatter：
+- `skills/general/`：题材中性的默认包，新写。五个方法论文件（`outline-method.md`、`character-method.md`、`writing-method.md`、`output-style.md`、`review-rules.md`）只讲任何类型长篇都适用的原则：三幕结构与章节功能、人物动机与弧光、场景推进、对话与叙述平衡、常见审稿点。不含任何具体时代、地域、流派的设定。没有 `references/`。
+- `skills/sanguo-xuanyi/`：从 `templates/default-project/.claude/skills/sanguo-xuanyi/` 原样搬来，作为"如何定制题材包"的范例。`SKILL.md` 补上 frontmatter：
 
 ```yaml
 ---
@@ -417,6 +421,7 @@ claude --plugin-dir ../../../ -p "/novel:status" --output-format json
 1. 空目录 `/novel:init sanguo-xuanyi`。
 2. `/novel:plan` 出 6 章大纲、3 个角色。
 3. 第 1 到 3 章走完 write、review、revise、finalize。
+4. 另起一个空目录 `/novel:init`（不带参数，用 `general` 包），`/novel:plan` 出一个非历史题材的 3 章大纲，确认规划流程在通用包下同样能走通。这一步只到大纲，不写正文。
 
 验收：
 
