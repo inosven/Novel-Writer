@@ -10,6 +10,7 @@ section() { printf '\n===== %s =====\n' "$1"; }
 [ $# -eq 2 ] || die "用法: context.sh N write|review"
 N="$1"; MODE="$2"
 case "$N" in ''|*[!0-9]*) die "章号必须是数字: $N";; esac
+N=$((10#$N))
 [ "$MODE" = write ] || [ "$MODE" = review ] || die "模式必须是 write 或 review: $MODE"
 
 [ -f novel.yaml ] || die "当前目录没有 novel.yaml，请先在小说目录里运行，或用 /novel:init 初始化"
@@ -20,10 +21,10 @@ NN="$(printf '%02d' "$N")"
 PREV=$((N-1))
 PREV_NN="$(printf '%02d' "$PREV")"
 
-SKILL="$(sed -n 's/^skill:[[:space:]]*\([^[:space:]#]*\).*/\1/p' novel.yaml | head -1)"
+SKILL="$(sed -n 's/^skill:[[:space:]]*\([^[:space:]#]*\).*/\1/p' novel.yaml | head -1 | sed -e "s/^['\"]//" -e "s/['\"]\$//")"
 [ -n "$SKILL" ] || die "novel.yaml 缺少 skill 字段"
 SKILL_DIR=".claude/skills/$SKILL"
-[ -d "$SKILL_DIR" ] || die "题材包目录不存在: $SKILL_DIR（novel.yaml 的 skill 字段指向它）"
+[ -d "$SKILL_DIR" ] || die "题材包目录不存在: ${SKILL_DIR}（novel.yaml 的 skill 字段指向它）"
 
 UPTO="$(sed -n '1s/^# 故事状态（截至第\([0-9][0-9]*\)章）$/\1/p' bible/state.md)"
 [ -n "$UPTO" ] || die "bible/state.md 第一行必须是「# 故事状态（截至第N章）」"
@@ -47,7 +48,7 @@ ENTRY="$(LC_ALL=C awk -v n="$N" '
 
 # 出场角色：取 **出场角色**: 之后的内容，按 , ， 、 分割
 # 注：tr 对多字节输入是 locale 相关的，用 perl -CSD 按字符分割更可靠。
-CHARS="$(printf '%s\n' "$ENTRY" | sed -n 's/^\*\*出场角色\*\*[：:][[:space:]]*//p' | head -1 | perl -CSD -pe 's/[,，、]/\n/g' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$')"
+CHARS="$(printf '%s\n' "$ENTRY" | sed -n 's/^\*\*出场角色\*\*[：:][[:space:]]*//p' | head -1 | perl -CSD -pe 'use utf8; s/[,，、]/\n/g' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$')"
 
 # ---------- 输出 ----------
 section "项目信息"
@@ -62,22 +63,25 @@ section "本章大纲"
 printf '%s\n' "$ENTRY"
 
 section "出场角色档案"
-missing=""
 if [ -n "$CHARS" ]; then
   printf '%s\n' "$CHARS" | while IFS= read -r name; do
-    if [ -f "characters/$name.md" ]; then
-      cat "characters/$name.md"; echo
+    if [ -f "characters/${name}.md" ]; then
+      cat "characters/${name}.md"; echo
     else
-      echo "（未找到档案：$name）"
+      echo "（未找到档案：${name}）"
     fi
   done
 else
   echo "（大纲未指定出场角色）"
 fi
 
-if [ "$N" -gt 1 ] && [ -f "chapters/Chapter-$PREV_NN.md" ]; then
+if [ "$N" -gt 1 ]; then
   section "上一章末尾"
-  perl -CSD -0777 -ne 'use utf8; my $t=$_; $t =~ s/\s+$//; print length($t) > 800 ? "……" . substr($t, -800) : $t; print "\n"' "chapters/Chapter-$PREV_NN.md"
+  if [ -f "chapters/Chapter-$PREV_NN.md" ]; then
+    perl -CSD -0777 -ne 'use utf8; my $t=$_; $t =~ s/\s+$//; print length($t) > 800 ? "……" . substr($t, -800) : $t; print "\n"' "chapters/Chapter-$PREV_NN.md"
+  else
+    echo "（上一章正文不存在）"
+  fi
 fi
 
 if [ "$N" -gt 1 ]; then

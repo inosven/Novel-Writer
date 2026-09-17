@@ -61,13 +61,13 @@ test_bible_check() {
 
   # 截至章号 > 正文最大章号 → 报错
   d="$(make_novel)"
-  sed -i '' '1s/第2章/第5章/' "$d/bible/state.md"
+  perl -CSD -pi -e 'use utf8; s/第2章/第5章/ if $. == 1' "$d/bible/state.md"
   out="$(cd "$d" && bash "$SCRIPTS/bible-check.sh" 2>&1)"; code=$?
   assert_exit "bible-check 截至超前" 1 "$code"
 
   # threads 状态非法 → 报错
   d="$(make_novel)"
-  sed -i '' 's/| 未收 |/| 待定 |/' "$d/bible/threads.md"
+  perl -CSD -pi -e 'use utf8; s/\| 未收 \|/\| 待定 \|/' "$d/bible/threads.md"
   out="$(cd "$d" && bash "$SCRIPTS/bible-check.sh" 2>&1)"; code=$?
   assert_exit "bible-check threads 状态" 1 "$code"
   assert_contains "bible-check 报告 threads" "threads" "$out"
@@ -103,13 +103,13 @@ test_context() {
   assert_not_contains "context write 不含正文段" "===== 本章正文 =====" "$out"
 
   # 第1章：无上一章末尾、无前文摘要
-  out="$(cd "$d" && sed -i '' '1s/第2章/第0章/' bible/state.md && bash "$SCRIPTS/context.sh" 1 write 2>&1)"; code=$?
+  out="$(cd "$d" && perl -CSD -pi -e 'use utf8; s/第2章/第0章/ if $. == 1' bible/state.md && bash "$SCRIPTS/context.sh" 1 write 2>&1)"; code=$?
   assert_exit "context 第1章通过" 0 "$code"
   assert_not_contains "context 第1章无上一章" "===== 上一章末尾 =====" "$out"
 
   # 账本停在第1章时写第3章 → 拒绝
   d="$(make_novel)"
-  sed -i '' '1s/第2章/第1章/' "$d/bible/state.md"
+  perl -CSD -pi -e 'use utf8; s/第2章/第1章/ if $. == 1' "$d/bible/state.md"
   out="$(cd "$d" && bash "$SCRIPTS/context.sh" 3 write 2>&1)"; code=$?
   assert_exit "context 账本落后拒绝" 1 "$code"
   assert_contains "context 账本落后提示" "截至" "$out"
@@ -152,7 +152,7 @@ test_context() {
 
   # 大纲无第 N 章 → 拒绝
   d="$(make_novel)"
-  sed -i '' '1s/第2章/第6章/' "$d/bible/state.md"
+  perl -CSD -pi -e 'use utf8; s/第2章/第6章/ if $. == 1' "$d/bible/state.md"
   out="$(cd "$d" && bash "$SCRIPTS/context.sh" 7 write 2>&1)"; code=$?
   assert_exit "context 大纲缺章拒绝" 1 "$code"
   assert_contains "context 大纲缺章提示" "outline.md" "$out"
@@ -162,6 +162,7 @@ test_context() {
   rm -r "$d/.claude/skills/general"
   out="$(cd "$d" && bash "$SCRIPTS/context.sh" 3 write 2>&1)"; code=$?
   assert_exit "context 题材包缺失拒绝" 1 "$code"
+  assert_contains "context 题材包缺失提示" "题材包目录不存在" "$out"
 
   # 缺 novel.yaml → 拒绝
   d="$(make_novel)"
@@ -172,6 +173,60 @@ test_context() {
   # 参数错误 → 拒绝
   out="$(cd "$FIXTURE_SRC" && bash "$SCRIPTS/context.sh" 3 2>&1)"; code=$?
   assert_exit "context 参数缺失" 1 "$code"
+}
+
+# ---------- context.sh：缺档案 / 中文分隔符 / 章号 >=10 / 前导零 ----------
+test_context_more() {
+  local d out code i NN
+
+  # 缺档案：第3章大纲改为 "王五, 林砚"，输出要同时含未找到档案提示和林砚档案
+  d="$(make_novel)"
+  perl -CSD -0777 -pi -e 'use utf8; s/(### 第3章:.*?\*\*出场角色\*\*: )林砚\n/${1}王五, 林砚\n/s' "$d/outline.md"
+  out="$(cd "$d" && bash "$SCRIPTS/context.sh" 3 write 2>&1)"; code=$?
+  assert_exit "context 缺档案仍通过" 0 "$code"
+  assert_contains "context 缺档案提示" "未找到档案：王五" "$out"
+  assert_contains "context 缺档案仍打印在档角色" "左手腕有一道浅疤" "$out"
+
+  # 中文分隔符：第3章大纲改为 "林砚、周远"，两份档案都要出现
+  d="$(make_novel)"
+  perl -CSD -0777 -pi -e 'use utf8; s/(### 第3章:.*?\*\*出场角色\*\*: )林砚\n/${1}林砚、周远\n/s' "$d/outline.md"
+  out="$(cd "$d" && bash "$SCRIPTS/context.sh" 3 write 2>&1)"; code=$?
+  assert_exit "context 中文分隔符通过" 0 "$code"
+  assert_contains "context 中文分隔符林砚档案" "左手腕有一道浅疤" "$out"
+  assert_contains "context 中文分隔符周远档案" "深灰色夹克" "$out"
+
+  # 章号 >= 10
+  d="$(make_novel)"
+  for i in 7 8 9 10 11 12; do
+    cat >> "$d/outline.md" <<EOF
+
+### 第${i}章: 章节${i}
+**摘要**: 占位摘要。
+**关键事件**:
+- 占位事件
+**出场角色**: 林砚
+EOF
+  done
+  i=3
+  while [ "$i" -le 11 ]; do
+    NN="$(printf '%02d' "$i")"
+    printf '# 第%s章 占位标题\n\n占位正文。\n' "$i" > "$d/chapters/Chapter-$NN.md"
+    printf '# 第%s章 摘要\n\n## 情节\n占位。\n\n## 状态变化\n- 林砚：占位\n\n## 新设定\n- 无\n\n## 出场角色\n林砚\n' "$i" > "$d/summaries/Chapter-$NN.md"
+    i=$((i+1))
+  done
+  perl -CSD -pi -e 'use utf8; s/^# 故事状态（截至第2章）$/# 故事状态（截至第11章）/ if $. == 1' "$d/bible/state.md"
+  out="$(cd "$d" && bash "$SCRIPTS/context.sh" 12 write 2>&1)"; code=$?
+  assert_exit "context 第12章通过" 0 "$code"
+  assert_contains "context 第12章大纲" "### 第12章" "$out"
+  assert_contains "context 第12章前文摘要" "# 第11章 摘要" "$out"
+
+  # 前导零：08 在账本停在第2章的情况下应按第8章报错，而不是崩溃
+  out="$(cd "$FIXTURE_SRC" && bash "$SCRIPTS/context.sh" 08 write 2>&1)"; code=$?
+  assert_exit "context 章号前导零拒绝" 1 "$code"
+  assert_contains "context 章号前导零提示第8章" "第8章" "$out"
+  assert_not_contains "context 章号前导零不含第08章" "第08章" "$out"
+  assert_not_contains "context 章号前导零不含unbound" "unbound variable" "$out"
+  assert_not_contains "context 章号前导零不含invalid" "invalid number" "$out"
 }
 
 # ---------- wordcount-hook.sh ----------
@@ -192,11 +247,19 @@ test_hook() {
   printf '# 第3章 x\n\n短。\n' > "$d/chapters/Chapter-03.md"
   out="$(cd "$d" && printf '{"tool_name":"Write","tool_input":{"file_path":"%s/chapters/Chapter-03.md"},"cwd":"%s"}' "$d" "$d" | bash "$PLUGIN/hooks/wordcount-hook.sh")"
   assert_contains "hook 不足提醒" "低于目标" "$out"
+
+  # novel.yaml 没有 chapter_words → 只报字数，不报目标
+  d="$(make_novel)"
+  perl -CSD -ni -e 'print unless /^chapter_words:/' "$d/novel.yaml"
+  out="$(cd "$d" && printf '{"tool_name":"Write","tool_input":{"file_path":"%s/chapters/Chapter-01.md"},"cwd":"%s"}' "$d" "$d" | bash "$PLUGIN/hooks/wordcount-hook.sh")"
+  assert_contains "hook 无字数区间报字数" "第1章当前 247 字。" "$out"
+  assert_not_contains "hook 无字数区间不报目标" "目标" "$out"
 }
 
 test_wordcount
 test_bible_check
 test_context
+test_context_more
 test_hook
 
 echo "passed: $PASS, failed: $FAIL"
