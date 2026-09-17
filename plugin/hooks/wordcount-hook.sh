@@ -8,6 +8,7 @@ file="$(printf '%s' "$input" | perl -ne 'if (/"file_path"\s*:\s*"((?:[^"\\]|\\.)
 [ -n "$file" ] || exit 0
 case "$file" in
   */chapters/Chapter-[0-9][0-9]*.md) ;;
+  chapters/Chapter-[0-9][0-9]*.md) ;;
   *) exit 0 ;;
 esac
 [ -f "$file" ] || exit 0
