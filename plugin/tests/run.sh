@@ -174,9 +174,30 @@ test_context() {
   assert_exit "context 参数缺失" 1 "$code"
 }
 
+# ---------- wordcount-hook.sh ----------
+test_hook() {
+  local d out
+  d="$(make_novel)"
+  out="$(cd "$d" && printf '{"tool_name":"Write","tool_input":{"file_path":"%s/chapters/Chapter-01.md"},"cwd":"%s"}' "$d" "$d" | bash "$PLUGIN/hooks/wordcount-hook.sh")"
+  assert_contains "hook 报字数" "第1章当前" "$out"
+  assert_contains "hook 报目标" "目标 300 到 800 字" "$out"
+  assert_contains "hook 是 JSON" '"additionalContext"' "$out"
+  assert_not_contains "hook 区间内不提醒" "超出" "$out"
+
+  # 非章节文件 → 无输出
+  out="$(cd "$d" && printf '{"tool_name":"Write","tool_input":{"file_path":"%s/outline.md"},"cwd":"%s"}' "$d" "$d" | bash "$PLUGIN/hooks/wordcount-hook.sh")"
+  assert_eq "hook 非章节静默" "" "$out"
+
+  # 字数不足 → 提醒
+  printf '# 第3章 x\n\n短。\n' > "$d/chapters/Chapter-03.md"
+  out="$(cd "$d" && printf '{"tool_name":"Write","tool_input":{"file_path":"%s/chapters/Chapter-03.md"},"cwd":"%s"}' "$d" "$d" | bash "$PLUGIN/hooks/wordcount-hook.sh")"
+  assert_contains "hook 不足提醒" "低于目标" "$out"
+}
+
 test_wordcount
 test_bible_check
 test_context
+test_hook
 
 echo "passed: $PASS, failed: $FAIL"
 [ "$FAIL" -eq 0 ]
