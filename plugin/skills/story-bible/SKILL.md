@@ -6,7 +6,7 @@ user-invocable: false
 
 # 故事账本
 
-账本在小说目录 `bible/` 下，四个文件。它是全书的事实来源：写作不得与它矛盾，审稿以它为准。只有 `/novel:finalize` 更新它。
+账本在小说目录 `bible/` 下，四个文件。它是全书的事实来源：写作不得与它矛盾，审稿以它为准。只有 `/novel:finalize` 更新它（规划阶段 /novel:plan 的初始化除外）。
 
 ## state.md 当前世界状态
 

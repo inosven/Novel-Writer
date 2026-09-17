@@ -10,7 +10,7 @@
 - `chapters/Chapter-NN.md`：正文
 - `summaries/`：定稿后的章节摘要
 - `reviews/`：审稿报告
-- `bible/`：故事账本。**只通过 `/novel:finalize` 修改。** 它记录截至最近定稿章的世界状态、伏笔、时间线、硬设定。
+- `bible/`：故事账本。**只通过 `/novel:finalize` 修改（规划阶段 /novel:plan 的初始化除外）。** 它记录截至最近定稿章的世界状态、伏笔、时间线、硬设定。
 - `.claude/skills/<题材包>/`：本书的写作方法论和文风规范，可以按需修改
 
 ## 命令

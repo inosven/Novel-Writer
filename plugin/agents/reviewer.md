@@ -42,6 +42,6 @@ critical X / major X / minor X / suggestion X
 ### S1 ……
 ```
 
-某一级没有问题时写"无"。不要读或改任何其他文件。
+某一级没有问题时写"无"。不改任何文件；可以用 Read/Grep 查前文取证。
 
 最后只返回：四个数字的汇总一行，以及每条 critical 的一句话标题。
