@@ -98,8 +98,8 @@ test_context() {
   assert_contains "context 上一章末尾内容" "像是很多年前的油" "$out"
   assert_contains "context 前文摘要" "# 第2章 摘要" "$out"
   assert_contains "context 题材包" "===== 题材包 =====" "$out"
-  assert_contains "context writing-method" "每章围绕一个核心事件推进" "$out"
-  assert_not_contains "context write 不含审稿规则" "检查人物所知" "$out"
+  assert_contains "context writing-method" "# 章节写作方法" "$out"
+  assert_not_contains "context write 不含审稿规则" "# 审稿要点" "$out"
   assert_not_contains "context write 不含正文段" "===== 本章正文 =====" "$out"
 
   # 第1章：无上一章末尾、无前文摘要
@@ -126,7 +126,7 @@ test_context() {
   assert_exit "context review 通过" 0 "$code"
   assert_contains "context review 正文" "===== 本章正文 =====" "$out"
   assert_contains "context review 正文内容" "林砚在深夜接到电话" "$out"
-  assert_contains "context review 审稿规则" "检查人物所知" "$out"
+  assert_contains "context review 审稿规则" "# 审稿要点" "$out"
   assert_contains "context review 检索段" "===== 关键词检索 =====" "$out"
   assert_contains "context review 检索命中" "[第1章]" "$out"
 
