@@ -38,7 +38,49 @@ test_wordcount() {
   assert_exit "wordcount 缺文件" 1 $?
 }
 
+# ---------- bible-check.sh ----------
+test_bible_check() {
+  local d out code
+  d="$(make_novel)"
+  out="$(cd "$d" && bash "$SCRIPTS/bible-check.sh" 2>&1)"; code=$?
+  assert_exit "bible-check fixture 通过" 0 "$code"
+  assert_contains "bible-check 输出截至" "截至第2章" "$out"
+
+  # 删掉一份摘要 → 摘要数 < 截至章号
+  rm "$d/summaries/Chapter-02.md"
+  out="$(cd "$d" && bash "$SCRIPTS/bible-check.sh" 2>&1)"; code=$?
+  assert_exit "bible-check 摘要缺失" 1 "$code"
+  assert_contains "bible-check 报告摘要缺失" "summaries" "$out"
+
+  # 第一行格式坏 → 报错
+  d="$(make_novel)"
+  printf '# 故事状态\n' > "$d/bible/state.md"
+  out="$(cd "$d" && bash "$SCRIPTS/bible-check.sh" 2>&1)"; code=$?
+  assert_exit "bible-check 首行格式" 1 "$code"
+  assert_contains "bible-check 报告首行" "第一行" "$out"
+
+  # 截至章号 > 正文最大章号 → 报错
+  d="$(make_novel)"
+  sed -i '' '1s/第2章/第5章/' "$d/bible/state.md"
+  out="$(cd "$d" && bash "$SCRIPTS/bible-check.sh" 2>&1)"; code=$?
+  assert_exit "bible-check 截至超前" 1 "$code"
+
+  # threads 状态非法 → 报错
+  d="$(make_novel)"
+  sed -i '' 's/| 未收 |/| 待定 |/' "$d/bible/threads.md"
+  out="$(cd "$d" && bash "$SCRIPTS/bible-check.sh" 2>&1)"; code=$?
+  assert_exit "bible-check threads 状态" 1 "$code"
+  assert_contains "bible-check 报告 threads" "threads" "$out"
+
+  # 缺文件 → 报错
+  d="$(make_novel)"
+  rm "$d/bible/facts.md"
+  out="$(cd "$d" && bash "$SCRIPTS/bible-check.sh" 2>&1)"; code=$?
+  assert_exit "bible-check 缺 facts" 1 "$code"
+}
+
 test_wordcount
+test_bible_check
 
 echo "passed: $PASS, failed: $FAIL"
 [ "$FAIL" -eq 0 ]
