@@ -1,3 +1,8 @@
+---
+name: sanguo-xuanyi
+description: 三国时期古装悬疑小说的写作方法论、文风规范与史实参考。
+---
+
 # Skill: 三国悬疑
 
 ## Metadata
@@ -61,16 +66,7 @@ references:
 | review-rules.md | 审稿规则 | No |
 
 ## Usage
-```bash
-# 切换到此技能包
-/skill use sanguo-xuanyi
-
-# 查看技能包信息
-/skill info sanguo-xuanyi
-
-# 列出所有技能包
-/skill list
-```
+在 `novel.yaml` 里设置 `skill: sanguo-xuanyi`，或在初始化时运行 `/novel:init sanguo-xuanyi`。
 
 ## Notes
 - 本技能包以东汉末年至三国时期（约184-280年）为背景
