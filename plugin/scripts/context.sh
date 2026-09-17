@@ -103,27 +103,33 @@ if [ "$MODE" = review ]; then
   cat "chapters/Chapter-$NN.md"
 
   section "关键词检索"
-  echo "（本章出场角色名在第1到第${PREV}章正文中的出现位置，每个名字最多 5 处）"
+  echo "（本章出场角色名在前文正文中最近的出现位置，每个名字最多 5 处，从第${PREV}章往前找）"
   if [ -n "$CHARS" ]; then
     printf '%s\n' "$CHARS" | while IFS= read -r name; do
-      i=1
-      while [ "$i" -lt "$N" ]; do
+      remaining=5
+      i="$PREV"
+      while [ "$i" -ge 1 ] && [ "$remaining" -gt 0 ]; do
         f="chapters/Chapter-$(printf '%02d' "$i").md"
         if [ -f "$f" ]; then
-          NAME="$name" CH="$i" perl -CSD -0777 -ne '
+          hits="$(NAME="$name" CH="$i" MAX="$remaining" perl -CSD -0777 -ne '
             use utf8;
             my $name = $ENV{NAME}; utf8::decode($name);
-            my $ch = $ENV{CH}; my $k = 0;
+            my $ch = $ENV{CH}; my $max = $ENV{MAX}; my $k = 0;
             while (/\Q$name\E/g) {
-              last if ++$k > 5;
+              last if ++$k > $max;
               my $s = pos($_) - length($name) - 80; $s = 0 if $s < 0;
               my $e = pos($_) + 80; $e = length($_) if $e > length($_);
               my $snip = substr($_, $s, $e - $s); $snip =~ s/\s+/ /g;
               print "[第${ch}章] …${snip}…\n";
             }
-          ' "$f"
+          ' "$f")"
+          if [ -n "$hits" ]; then
+            printf '%s\n' "$hits"
+            n_hits="$(printf '%s\n' "$hits" | grep -c '^\[第')"
+            remaining=$((remaining - n_hits))
+          fi
         fi
-        i=$((i+1))
+        i=$((i-1))
       done
     done
   fi

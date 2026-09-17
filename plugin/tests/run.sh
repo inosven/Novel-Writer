@@ -130,6 +130,26 @@ test_context() {
   assert_contains "context review 检索段" "===== 关键词检索 =====" "$out"
   assert_contains "context review 检索命中" "[第1章]" "$out"
 
+  # 关键词检索：跨所有前文章节全局最多 5 处（不是每章 5 处），且从最近章节往前找
+  d="$(make_novel)"
+  i=1
+  while [ "$i" -le 6 ]; do
+    printf '林砚看了一眼窗外。\n' >> "$d/chapters/Chapter-01.md"
+    printf '林砚又想起了那把钥匙。\n' >> "$d/chapters/Chapter-02.md"
+    i=$((i+1))
+  done
+  printf '# 第3章 夜里的电话\n\n林砚在深夜接到电话。\n' > "$d/chapters/Chapter-03.md"
+  out="$(cd "$d" && bash "$SCRIPTS/context.sh" 3 review 2>&1)"; code=$?
+  assert_exit "context 检索全局上限通过" 0 "$code"
+  hit_count="$(printf '%s\n' "$out" | grep -c '^\[第')"
+  assert_eq "context 检索命中总数全局上限5" "5" "$hit_count"
+  first_hit_line="$(printf '%s\n' "$out" | grep '^\[第' | head -1)"
+  case "$first_hit_line" in
+    "[第2章]"*) first_hit_ok=1;;
+    *) first_hit_ok=0;;
+  esac
+  assert_eq "context 检索命中最近章节优先" "1" "$first_hit_ok"
+
   # 大纲无第 N 章 → 拒绝
   d="$(make_novel)"
   sed -i '' '1s/第2章/第6章/' "$d/bible/state.md"
