@@ -26,7 +26,7 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/*), Bash(ls *), Bash(mv *), Re
 
 每章只修一轮。修一轮后仍有 critical，说明问题需要作者判断，不要再自动修第二轮。
 
-结束（跑完 N 章，或中途停下）时给用户一张表和几行说明：
+结束（跑完 N 章，或中途停下）时给用户一张表和几行说明。表里的字数用 `${CLAUDE_PLUGIN_ROOT}/scripts/wordcount.sh chapters/Chapter-NN.md` 取，不要自己用 grep 或 wc 数：
 
 ```
 | 章 | 字数 | 审稿 critical / major / minor / suggestion | 修订 | 结果 |
