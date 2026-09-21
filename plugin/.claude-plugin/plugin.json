@@ -1,0 +1,8 @@
+{
+  "name": "novel",
+  "displayName": "NovelWriter",
+  "version": "0.1.0",
+  "description": "AI 辅助长篇小说写作：规划、逐章写作、审稿、修订、故事账本",
+  "license": "MIT",
+  "keywords": ["novel", "writing", "fiction"]
+}

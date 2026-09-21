@@ -1,0 +1,4 @@
+title: __TITLE__
+skill: __SKILL__            # .claude/skills/ 下的题材包目录名
+chapter_words: [3000, 5000] # 每章目标字数区间（汉字数）
+pov: 第三人称限知
