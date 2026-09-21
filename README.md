@@ -31,11 +31,12 @@ claude --plugin-dir /path/to/Novel-Writer/plugin
 | `/novel:plan` | 对话式规划：大纲、角色档案、账本初始内容 |
 | `/novel:write N` | 写第 N 章草稿，写完停下 |
 | `/novel:review N` | 审稿，报告在 `reviews/Chapter-NN.md` |
-| `/novel:revise N [说明]` | 按审稿报告或你的说明做定点修改 |
+| `/novel:revise N [说明]` | 按审稿报告或你的说明做定点修改，改完自动复审 |
 | `/novel:finalize N` | 定稿：生成摘要、更新账本 |
+| `/novel:auto N` | 连续写到第 N 章：每章写、审、修、复审、定稿，复审后仍有 critical 才停 |
 | `/novel:status` | 进度 |
 
-典型循环：`write 3` → 自己读、随手改 → `review 3` → `revise 3` → `finalize 3` → `write 4`。
+典型循环：`write 3` → 自己读、随手改 → `review 3` → `revise 3` → `finalize 3` → `write 4`。想省事就 `auto 6`，它会一章章跑下去，只在复审后还剩 critical 时停下来找你。每次重审前旧报告会改名为 `reviews/Chapter-NN.v1.md` 留底。
 
 写第 N 章要求账本停在第 N-1 章，所以每章都要 finalize 才能往下写。这是刻意的：账本落后，后面的章节就会不连贯。
 
@@ -67,10 +68,6 @@ my-novel/
 - `sanguo-xuanyi`：三国古装悬疑，作为定制范例。
 
 定制自己的：复制 `plugin/templates/skills/general` 到你项目的 `.claude/skills/<新名字>/`，改写五个文件，把 `novel.yaml` 的 `skill` 改成新名字。
-
-## 项目状态
-
-`plugin/` 是当前维护的部分。`app/`、`electron/`、`src/` 是旧的 Electron 应用，不再维护，保留到下一版阅读器完成为止。
 
 ## License
 
