@@ -4,7 +4,7 @@
 
 ## 目录
 
-- `novel.yaml`：书名、题材包、每章字数
+- `novel.yaml`：书名、题材包、每章字数、各子代理用的模型
 - `outline.md`：大纲，每章一个 `### 第N章: 标题` 条目
 - `characters/`：角色档案
 - `chapters/Chapter-NN.md`：正文
@@ -20,7 +20,10 @@
 - `/novel:review N`：审稿
 - `/novel:revise N [说明]`：按审稿报告或说明修改
 - `/novel:finalize N`：定稿，更新摘要和账本
+- `/novel:auto N`：连续写到第 N 章，复审后仍有 critical 才停
 - `/novel:status`：进度
+
+写、审、修、定稿、auto 都可以在章号后加模型覆盖：`/novel:write 5 opus` 或 `/novel:auto 8 writer=opus,reviewer=haiku`。不加就按 `novel.yaml` 的 `models` 段。
 
 ## 约定
 

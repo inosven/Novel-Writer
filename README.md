@@ -29,22 +29,35 @@ claude --plugin-dir /path/to/Novel-Writer/plugin
 |---|---|
 | `/novel:init [题材包]` | 初始化项目。不带参数用通用包 `general`，示例题材包 `sanguo-xuanyi` |
 | `/novel:plan` | 对话式规划：大纲、角色档案、账本初始内容 |
-| `/novel:write N` | 写第 N 章草稿，写完停下 |
-| `/novel:review N` | 审稿，报告在 `reviews/Chapter-NN.md` |
-| `/novel:revise N [说明]` | 按审稿报告或你的说明做定点修改，改完自动复审 |
-| `/novel:finalize N` | 定稿：生成摘要、更新账本 |
-| `/novel:auto N` | 连续写到第 N 章：每章写、审、修、复审、定稿，复审后仍有 critical 才停 |
+| `/novel:write N [模型]` | 写第 N 章草稿，写完停下 |
+| `/novel:review N [模型]` | 审稿，报告在 `reviews/Chapter-NN.md` |
+| `/novel:revise N [模型] [说明]` | 按审稿报告或你的说明做定点修改，改完自动复审 |
+| `/novel:finalize N [模型]` | 定稿：生成摘要、更新账本 |
+| `/novel:auto N [模型]` | 连续写到第 N 章：每章写、审、修、复审、定稿，复审后仍有 critical 才停 |
 | `/novel:status` | 进度 |
 
 典型循环：`write 3` → 自己读、随手改 → `review 3` → `revise 3` → `finalize 3` → `write 4`。想省事就 `auto 6`，它会一章章跑下去，只在复审后还剩 critical 时停下来找你。每次重审前旧报告会改名为 `reviews/Chapter-NN.v1.md` 留底。
 
 写第 N 章要求账本停在第 N-1 章，所以每章都要 finalize 才能往下写。这是刻意的：账本落后，后面的章节就会不连贯。
 
+## 指定模型
+
+四个子代理各用什么模型在 `novel.yaml` 的 `models` 段里定，`init` 生成的默认值是写手和审稿 `opus`，编辑和档案员 `sonnet`。填 `inherit` 就跟主对话相同。主对话只做调度，启动时 `claude --model sonnet` 就够。
+
+想临时换一个模型试试，在章号后面加一个参数：
+
+```
+/novel:write 5 opus                       # 这次写手用 opus
+/novel:auto 8 sonnet                      # 这一轮所有子代理都用 sonnet
+/novel:auto 8 writer=opus,reviewer=haiku  # 只换指定角色，其余按 novel.yaml
+/novel:revise 5 editor=sonnet 结尾改短    # 修订说明写在模型后面
+```
+
 ## 目录结构
 
 ```
 my-novel/
-├── novel.yaml          书名、题材包、每章字数
+├── novel.yaml          书名、题材包、每章字数、各子代理用的模型
 ├── outline.md          大纲
 ├── characters/         角色档案
 ├── chapters/           正文 Chapter-01.md …
