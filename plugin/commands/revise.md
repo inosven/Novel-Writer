@@ -1,8 +1,8 @@
 ---
-description: 修订第 N 章。不带说明时按审稿报告的 critical 和 major 修改；带说明时按说明修改
+description: 修订第 N 章并自动复审。不带说明时按审稿报告的 critical 和 major 修改；带说明时按说明修改
 argument-hint: N [修改说明]
 disable-model-invocation: true
-allowed-tools: Read, Agent
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/*), Bash(ls *), Bash(mv *), Read, Agent
 ---
 
 修订第 $0 章。完整参数：`$ARGUMENTS`。
@@ -15,6 +15,8 @@ allowed-tools: Read, Agent
 4. 用 novel:editor 子代理修改。提示词：
    - 按报告修改时："修订第 N 章。按 reviews/Chapter-NN.md 处理以下条目：C1, C2, M1。"
    - 按说明修改时："修订第 N 章。用户要求：（修改说明原文）。"
-5. 子代理返回后，把改动的前后对照原样转述给用户，加一句：可以再次 `/novel:review N` 复查，或 `/novel:finalize N` 定稿。
+5. 子代理返回后，记下它给出的改动前后对照。
+6. 复审：读 `${CLAUDE_PLUGIN_ROOT}/commands/review.md`，按其步骤 2 到 4 执行一遍（旧报告归档为 `Chapter-NN.vK.md`，重新生成 `reviews/Chapter-NN.md`）。
+7. 把第 5 步的前后对照和复审的汇总行、critical 列表一起给用户。复审后 critical 为 0 就加一句：可以 `/novel:finalize N` 定稿；仍有 critical 就加一句：可以再次 `/novel:revise N`。
 
 然后停止。
