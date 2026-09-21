@@ -306,12 +306,103 @@ test_model() {
   assert_eq "model 模板默认 archivist" "sonnet" "$out"
 }
 
+# ---------- bible-snapshot.sh / rollback.sh ----------
+test_rollback() {
+  local d out code
+  d="$(make_novel)"   # 账本截至第2章，chapters/summaries 1-2
+
+  # 快照
+  bash "$SCRIPTS/bible-snapshot.sh" >/dev/null 2>&1
+  assert_exit "snapshot 缺参数" 1 $?
+  (cd "$d" && bash "$SCRIPTS/bible-snapshot.sh" 03x) >/dev/null 2>&1
+  assert_exit "snapshot 非法章号" 1 $?
+  out="$(cd "$d" && bash "$SCRIPTS/bible-snapshot.sh" 3)"; code=$?
+  assert_exit "snapshot 成功" 0 $code
+  assert_contains "snapshot 报路径" "bible/.history/before-03" "$out"
+  for f in state threads timeline facts; do
+    assert_eq "snapshot 复制 $f" "$(cat "$d/bible/$f.md")" "$(cat "$d/bible/.history/before-03/$f.md" 2>/dev/null)"
+  done
+  # 再定稿一次会覆盖旧快照
+  echo "- 新行" >> "$d/bible/facts.md"
+  (cd "$d" && bash "$SCRIPTS/bible-snapshot.sh" 3) >/dev/null
+  assert_eq "snapshot 覆盖旧快照" "$(cat "$d/bible/facts.md")" "$(cat "$d/bible/.history/before-03/facts.md")"
+
+  # 回滚：参数校验
+  (cd "$d" && bash "$SCRIPTS/rollback.sh") >/dev/null 2>&1
+  assert_exit "rollback 缺参数" 1 $?
+  (cd "$d" && bash "$SCRIPTS/rollback.sh" 0) >/dev/null 2>&1
+  assert_exit "rollback 章号 0" 1 $?
+  out="$(cd "$d" && bash "$SCRIPTS/rollback.sh" 4 2>&1)"; code=$?
+  assert_exit "rollback N 大于账本截至章" 1 $code
+  assert_contains "rollback N 大于 M 说明" "截至第2章" "$out"
+  out="$(cd "$d" && bash "$SCRIPTS/rollback.sh" 2 2>&1)"; code=$?
+  assert_exit "rollback 无快照" 1 $code
+  assert_contains "rollback 无快照说明" "快照" "$out"
+  assert_eq "rollback 失败不改账本" "# 故事状态（截至第2章）" "$(head -1 "$d/bible/state.md")"
+
+  # 造一个截至第1章的快照
+  mkdir -p "$d/bible/.history/before-02"
+  cp "$d/bible/"*.md "$d/bible/.history/before-02/"
+  perl -CSD -pi -e 'use utf8; s/截至第2章/截至第1章/' "$d/bible/.history/before-02/state.md"
+
+  # dry-run 只报告不动
+  out="$(cd "$d" && bash "$SCRIPTS/rollback.sh" 2 --dry-run 2>&1)"; code=$?
+  assert_exit "rollback dry-run 退出 0" 0 $code
+  assert_contains "rollback dry-run 列出摘要" "summaries/Chapter-02.md" "$out"
+  assert_contains "rollback dry-run 列出过期快照" "before-03" "$out"
+  assert_eq "rollback dry-run 不改账本" "# 故事状态（截至第2章）" "$(head -1 "$d/bible/state.md")"
+  [ -f "$d/summaries/Chapter-02.md" ]; assert_exit "rollback dry-run 不移摘要" 0 $?
+
+  # 真回滚
+  out="$(cd "$d" && bash "$SCRIPTS/rollback.sh" 2 2>&1)"; code=$?
+  assert_exit "rollback 成功" 0 $code
+  assert_eq "rollback 账本回到第1章" "# 故事状态（截至第1章）" "$(head -1 "$d/bible/state.md")"
+  [ -f "$d/summaries/Chapter-02.md" ]; assert_exit "rollback 移走第2章摘要" 1 $?
+  [ -f "$d/summaries/Chapter-01.md" ]; assert_exit "rollback 保留第1章摘要" 0 $?
+  [ -f "$d/chapters/Chapter-02.md" ]; assert_exit "rollback 保留正文" 0 $?
+  [ -d "$d/bible/.history/before-02" ]; assert_exit "rollback 保留所用快照" 0 $?
+  [ -d "$d/bible/.history/before-03" ]; assert_exit "rollback 移走过期快照" 1 $?
+  local bk
+  bk="$(ls -d "$d"/bible/.history/rollback-* 2>/dev/null | head -1)"
+  [ -f "$bk/summaries/Chapter-02.md" ]; assert_exit "rollback 备份摘要" 0 $?
+  [ -f "$bk/bible/state.md" ]; assert_exit "rollback 备份回滚前账本" 0 $?
+  [ -d "$bk/before-03" ]; assert_exit "rollback 备份过期快照" 0 $?
+  assert_contains "rollback 报告备份位置" "rollback-" "$out"
+  (cd "$d" && bash "$SCRIPTS/bible-check.sh") >/dev/null 2>&1
+  assert_exit "rollback 后 bible-check 通过" 0 $?
+
+  # 连续回滚第二次
+  mkdir -p "$d/bible/.history/before-01"
+  cp "$d/bible/"*.md "$d/bible/.history/before-01/"
+  perl -CSD -pi -e 'use utf8; s/截至第1章/截至第0章/' "$d/bible/.history/before-01/state.md"
+  out="$(cd "$d" && bash "$SCRIPTS/rollback.sh" 1 2>&1)"; code=$?
+  assert_exit "rollback 第二次成功" 0 $code
+  assert_eq "rollback 账本回到第0章" "# 故事状态（截至第0章）" "$(head -1 "$d/bible/state.md")"
+  assert_eq "rollback 摘要清空" "0" "$(ls "$d/summaries" | wc -l | tr -d ' ')"
+  assert_eq "rollback 两个备份目录" "2" "$(ls -d "$d"/bible/.history/rollback-* | wc -l | tr -d ' ')"
+
+  # 定稿中途失败：账本首行仍是 N-1，但快照和半成品摘要已在
+  d="$(make_novel)"
+  (cd "$d" && bash "$SCRIPTS/bible-snapshot.sh" 3) >/dev/null
+  echo "- 半更新的行" >> "$d/bible/facts.md"
+  echo "# 第3章 摘要" > "$d/summaries/Chapter-03.md"
+  (cd "$d" && bash "$SCRIPTS/rollback.sh" 4) >/dev/null 2>&1
+  assert_exit "rollback N 大于 M+1 拒绝" 1 $?
+  out="$(cd "$d" && bash "$SCRIPTS/rollback.sh" 3 2>&1)"; code=$?
+  assert_exit "rollback 半更新 N=M+1 允许" 0 $code
+  assert_contains "rollback 半更新说明" "未完成定稿" "$out"
+  assert_not_contains "rollback 半更新恢复 facts" "半更新的行" "$(cat "$d/bible/facts.md")"
+  [ -f "$d/summaries/Chapter-03.md" ]; assert_exit "rollback 半更新移走半成品摘要" 1 $?
+  assert_eq "rollback 半更新账本仍截至第2章" "# 故事状态（截至第2章）" "$(head -1 "$d/bible/state.md")"
+}
+
 test_wordcount
 test_bible_check
 test_context
 test_context_more
 test_hook
 test_model
+test_rollback
 
 echo "passed: $PASS, failed: $FAIL"
 [ "$FAIL" -eq 0 ]

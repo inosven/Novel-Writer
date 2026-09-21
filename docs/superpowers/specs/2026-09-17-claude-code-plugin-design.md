@@ -215,7 +215,10 @@ plugin/
 ├── scripts/
 │   ├── context.sh
 │   ├── bible-check.sh
-│   └── wordcount.sh
+│   ├── wordcount.sh
+│   ├── model.sh
+│   ├── bible-snapshot.sh
+│   └── rollback.sh
 ├── hooks/hooks.json
 ├── templates/
 │   ├── novel.yaml
@@ -248,7 +251,8 @@ plugin/
 | `/novel:write N` | 运行 `context.sh N write`，失败则把错误信息给用户并停止。成功则派 writer 子代理，把脚本输出作为提示词主体。子代理写 `chapters/Chapter-NN.md` 并返回不超过 5 行的说明：推进了哪些伏笔、是否偏离大纲、字数。然后停下。已存在正文时先确认是否覆盖。 | writer |
 | `/novel:review N` | 运行 `context.sh N review`，派 reviewer 子代理，写 `reviews/Chapter-NN.md`。主对话只显示各级问题数量和 critical 的一句话列表。 | reviewer |
 | `/novel:revise N [说明]` | 无说明时按 `reviews/Chapter-NN.md` 里的 critical 和 major 逐条修改；有说明时按说明修改。派 editor 子代理，用 Edit 工具做片段替换。结束时列出每处改动的前后对照。 | editor |
-| `/novel:finalize N` | 前置检查：`chapters/Chapter-NN.md` 存在；账本"截至"为 N-1；`reviews/Chapter-NN.md` 存在且无未解决 critical，否则警告并等用户确认。派 archivist 子代理写 `summaries/Chapter-NN.md`、更新四个账本文件、把"截至"推到 N。结束后运行 `bible-check.sh`，失败则报告并提示用户检查账本。 | archivist |
+| `/novel:finalize N` | 前置检查：`chapters/Chapter-NN.md` 存在；账本"截至"为 N-1；`reviews/Chapter-NN.md` 存在且无未解决 critical，否则警告并等用户确认。先运行 `bible-snapshot.sh N` 把账本存到 `bible/.history/before-NN/`，再派 archivist 子代理写 `summaries/Chapter-NN.md`、更新四个账本文件、把"截至"推到 N。结束后运行 `bible-check.sh`，失败则报告并提示用户检查账本。 | archivist |
+| `/novel:rollback N` | 撤销第 N 章到当前截至章的定稿。`rollback.sh N --dry-run` 列出将要做的事并等用户确认，再 `rollback.sh N`：用 `before-NN` 快照覆盖 `bible/`，第 N 章起的摘要和第 N 章之后的快照移到 `bible/.history/rollback-<时间戳>/`，正文和审稿报告不动，最后跑 `bible-check.sh`。没有快照的章（快照功能加入前定稿的）拒绝回滚。 | 无 |
 | `/novel:status` | 读 `novel.yaml`、`outline.md` 章数、`chapters/` 和 `summaries/` 文件列表、账本"截至"、`threads.md` 未收条目、各章字数。纯文件读取，直接在主对话输出表格。 | 无 |
 
 ### 4.3 子代理
