@@ -26,7 +26,7 @@ fi
 # 2. novel.yaml 的 models 段
 if [ -f novel.yaml ]; then
   val="$(LC_ALL=C awk -v role="$ROLE" '
-    /^models:[[:space:]]*$/ { inb = 1; next }
+    /^models:[[:space:]]*(#.*)?$/ { inb = 1; next }
     inb && /^[^[:space:]#]/ { inb = 0 }
     inb && $0 ~ "^[[:space:]]+" role "[[:space:]]*:" {
       sub(/^[[:space:]]+[a-z]+[[:space:]]*:[[:space:]]*/, "")

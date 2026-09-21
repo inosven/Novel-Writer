@@ -293,6 +293,17 @@ test_model() {
   assert_eq "model 角色覆盖未命中取 yaml 值" "sonnet" "$out"
   out="$(cd /tmp && bash "$SCRIPTS/model.sh" writer)"
   assert_eq "model 无 novel.yaml 取 inherit" "inherit" "$out"
+
+  # 模板写法：models: 行带行尾注释
+  d="$(make_novel)"
+  printf 'models:   # 各子代理用的模型\n  writer: opus\n' >> "$d/novel.yaml"
+  out="$(cd "$d" && bash "$SCRIPTS/model.sh" writer)"
+  assert_eq "model models 行带注释" "opus" "$out"
+  # 用 init 模板本身跑一遍
+  d="$(make_novel)"
+  sed -e 's/__TITLE__/测试/' -e 's/__SKILL__/general/' "$PLUGIN/templates/novel.yaml" > "$d/novel.yaml"
+  out="$(cd "$d" && bash "$SCRIPTS/model.sh" archivist)"
+  assert_eq "model 模板默认 archivist" "sonnet" "$out"
 }
 
 test_wordcount
