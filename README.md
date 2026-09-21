@@ -69,10 +69,6 @@ my-novel/
 
 定制自己的：复制 `plugin/templates/skills/general` 到你项目的 `.claude/skills/<新名字>/`，改写五个文件，把 `novel.yaml` 的 `skill` 改成新名字。
 
-## 项目状态
-
-`plugin/` 是当前维护的部分。`app/`、`electron/`、`src/` 是旧的 Electron 应用，不再维护，保留到下一版阅读器完成为止。
-
 ## License
 
 MIT
