@@ -256,11 +256,51 @@ test_hook() {
   assert_not_contains "hook 无字数区间不报目标" "目标" "$out"
 }
 
+# ---------- model.sh ----------
+test_model() {
+  local d out
+  d="$(make_novel)"
+  # fixture 的 novel.yaml 没有 models 段
+  out="$(cd "$d" && bash "$SCRIPTS/model.sh" writer)"
+  assert_eq "model 无配置取 inherit" "inherit" "$out"
+  out="$(cd "$d" && bash "$SCRIPTS/model.sh" writer "")"
+  assert_eq "model 空覆盖串取 inherit" "inherit" "$out"
+  out="$(cd "$d" && bash "$SCRIPTS/model.sh" writer haiku)"
+  assert_eq "model 裸名覆盖" "haiku" "$out"
+  bash "$SCRIPTS/model.sh" cook >/dev/null 2>&1
+  assert_exit "model 未知角色" 1 $?
+  bash "$SCRIPTS/model.sh" >/dev/null 2>&1
+  assert_exit "model 缺参数" 1 $?
+
+  printf 'models:\n  writer: opus\n  reviewer: "sonnet"   # 注释\n  archivist:\n\npov: 第一人称\n' >> "$d/novel.yaml"
+  out="$(cd "$d" && bash "$SCRIPTS/model.sh" writer)"
+  assert_eq "model yaml 取值" "opus" "$out"
+  out="$(cd "$d" && bash "$SCRIPTS/model.sh" reviewer)"
+  assert_eq "model yaml 去引号去注释" "sonnet" "$out"
+  out="$(cd "$d" && bash "$SCRIPTS/model.sh" archivist)"
+  assert_eq "model yaml 空值取 inherit" "inherit" "$out"
+  out="$(cd "$d" && bash "$SCRIPTS/model.sh" editor)"
+  assert_eq "model yaml 缺角色取 inherit" "inherit" "$out"
+  out="$(cd "$d" && bash "$SCRIPTS/model.sh" writer haiku)"
+  assert_eq "model 裸名覆盖优先于 yaml" "haiku" "$out"
+  out="$(cd "$d" && bash "$SCRIPTS/model.sh" reviewer "writer=haiku,reviewer=fable")"
+  assert_eq "model 角色覆盖命中" "fable" "$out"
+  out="$(cd "$d" && bash "$SCRIPTS/model.sh" writer "writer=haiku, reviewer=fable")"
+  assert_eq "model 角色覆盖带空格" "haiku" "$out"
+  out="$(cd "$d" && bash "$SCRIPTS/model.sh" editor "writer=haiku,reviewer=fable")"
+  assert_eq "model 角色覆盖未命中回退 yaml" "inherit" "$out"
+  out="$(cd "$d" && bash "$SCRIPTS/model.sh" reviewer "writer=haiku")"
+  assert_eq "model 角色覆盖未命中取 yaml 值" "sonnet" "$out"
+  out="$(cd /tmp && bash "$SCRIPTS/model.sh" writer)"
+  assert_eq "model 无 novel.yaml 取 inherit" "inherit" "$out"
+}
+
 test_wordcount
 test_bible_check
 test_context
 test_context_more
 test_hook
+test_model
 
 echo "passed: $PASS, failed: $FAIL"
 [ "$FAIL" -eq 0 ]

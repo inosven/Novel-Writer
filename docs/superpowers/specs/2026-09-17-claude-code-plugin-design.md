@@ -49,7 +49,14 @@ title: 洛阳残卷
 skill: sanguo-xuanyi        # .claude/skills/ 下的题材包目录名
 chapter_words: [4000, 6000] # 每章目标字数区间（中文字符数）
 pov: 第三人称限知
+models:                     # 各子代理用的模型，可省略；省略或 inherit 表示跟主对话相同
+  writer: opus
+  reviewer: opus
+  editor: sonnet
+  archivist: sonnet
 ```
+
+`scripts/model.sh 角色 [覆盖串]` 决定子代理模型，优先级：命令行覆盖串（`/novel:write 5 opus` 的第二个参数，裸名对全部角色生效，`writer=opus,reviewer=haiku` 只对指定角色生效）> `models` 段 > `inherit`。命令文件调用子代理时把结果作为 Agent 工具的 `model` 参数传入，`inherit` 则不传。
 
 ### 2.2 outline.md
 

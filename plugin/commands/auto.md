@@ -1,11 +1,11 @@
 ---
 description: 连续写到第 N 章：每章写、审、修、复审、定稿，复审后仍有 critical 才停下
-argument-hint: N
+argument-hint: N [模型]
 disable-model-invocation: true
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/*), Bash(ls *), Bash(mv *), Read, Agent
 ---
 
-连续写到第 $0 章。
+连续写到第 $0 章。模型覆盖串 = `$1`（可能为空），下面每一步调用 `model.sh` 时都原样传给它。
 
 这是无人值守模式：四个单步命令里所有"问用户"的地方在这里都不问，改为按下面的固定规则处理。每一步的具体做法以对应命令文件为准，先用 Read 读它，再照其步骤执行。
 
@@ -42,3 +42,5 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/*), Bash(ls *), Bash(mv *), Re
 全部完成时最后一行写：账本截至第 N 章，下一步 `/novel:auto N+k` 或 `/novel:write N+1`。
 
 然后停止。
+
+模型覆盖：第二个参数可以是裸模型名（如 `opus`，对这一轮所有章的所有子代理生效）或 `角色=模型` 形式（如 `writer=opus,reviewer=haiku`，只对指定角色生效）。不带时按 `novel.yaml` 的 `models` 段，再没有就跟主对话相同。
