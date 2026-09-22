@@ -35,6 +35,8 @@ claude --plugin-dir /path/to/Novel-Writer/plugin
 | `/novel:finalize N [模型]` | 定稿：生成摘要、更新账本 |
 | `/novel:auto N [模型]` | 连续写到第 N 章：每章写、审、修、复审、定稿，复审后仍有 critical 才停 |
 | `/novel:rollback N` | 撤销第 N 章及之后的定稿：账本回到截至第 N-1 章，摘要移到备份，正文不动 |
+| `/novel:insert K [标题]` | 在第 K 章位置插入一章，后面的章号后移。只能在已定稿章之后 |
+| `/novel:delete K` | 删除第 K 章，正文和大纲条目移到 `.trash/`，后面的章号前移。只能删未定稿的章 |
 | `/novel:status` | 进度 |
 
 典型循环：`write 3` → 自己读、随手改 → `review 3` → `revise 3` → `finalize 3` → `write 4`。想省事就 `auto 6`，它会一章章跑下去，只在复审后还剩 critical 时停下来找你。每次重审前旧报告会改名为 `reviews/Chapter-NN.v1.md` 留底，复审时审稿会读上一版：沿用编号和严重度，已标"未处理"的条目不再提出。
@@ -42,6 +44,8 @@ claude --plugin-dir /path/to/Novel-Writer/plugin
 写第 N 章要求账本停在第 N-1 章，所以每章都要 finalize 才能往下写。这是刻意的：账本落后，后面的章节就会不连贯。
 
 定稿后想推倒重写某一章：`rollback N` 把账本恢复到该章定稿前的快照（每次 finalize 前自动存在 `bible/.history/before-NN/`），第 N 章起的摘要移到 `bible/.history/rollback-<时间戳>/` 备份，正文和审稿报告留在原地。然后改或 `write N` 重写，再 review、finalize。只有加入快照功能之后定稿的章才能回滚。
+
+调整章节结构：`insert K` 和 `delete K` 会改文件名、`outline.md` 的章标题、大纲和账本里所有"第N章"字样、伏笔表的引入章和预计回收列。两者都只在已定稿边界之后操作，要动已定稿的章先 `rollback`。表格里的裸数字不会改，改完自己看一眼。
 
 ## 指定模型
 
@@ -73,6 +77,7 @@ my-novel/
 │   ├── facts.md        硬设定
 │   └── .history/       定稿前快照与回滚备份
 ├── .novel/             上下文包临时文件，可删
+├── .trash/             delete 移走的章，可删
 └── .claude/skills/<题材包>/
 ```
 

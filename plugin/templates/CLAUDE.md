@@ -13,6 +13,7 @@
 - `bible/`：故事账本。**只通过 `/novel:finalize` 修改（规划阶段 /novel:plan 的初始化除外）。** 它记录截至最近定稿章的世界状态、伏笔、时间线、硬设定。`bible/.history/` 是每次定稿前的快照和回滚备份，别手动改。
 - `.claude/skills/<题材包>/`：本书的写作方法论和文风规范，可以按需修改
 - `.novel/`：插件生成的上下文包临时文件，随时可删
+- `.trash/`：`/novel:delete` 移走的章，确认不要了可删
 
 ## 命令
 
@@ -23,6 +24,8 @@
 - `/novel:finalize N`：定稿，更新摘要和账本
 - `/novel:auto N`：连续写到第 N 章，复审后仍有 critical 才停
 - `/novel:rollback N`：撤销第 N 章及之后的定稿，账本回到截至第 N-1 章，正文不动
+- `/novel:insert K [标题]`：在第 K 章位置插入一章，后面章号后移（只能在已定稿章之后）
+- `/novel:delete K`：删除第 K 章，移到 `.trash/`，后面章号前移（只能删未定稿的章）
 - `/novel:status`：进度
 
 写、审、修、定稿、auto 都可以在章号后加模型覆盖：`/novel:write 5 opus` 或 `/novel:auto 8 writer=opus,reviewer=haiku`。不加就按 `novel.yaml` 的 `models` 段。
