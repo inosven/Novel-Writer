@@ -38,6 +38,13 @@
   #toast { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:#333; color:#fff; padding:8px 14px; border-radius:6px; display:none; }
   @media (max-width:1100px) { #app { grid-template-columns:200px 1fr; } #right { position:fixed; right:0; top:0; height:100vh; width:360px; transform:translateX(100%); transition:.2s; } #right.open { transform:none; } #drawer { display:block; } }
   #drawer { display:none; position:fixed; right:12px; top:12px; }
+  #float { position:absolute; display:none; background:#333; border-radius:6px; padding:4px; z-index:9; }
+  #float button { background:#333; color:#fff; border:0; padding:4px 8px; cursor:pointer; }
+  #float button:hover { background:#555; }
+  #noteform { position:fixed; left:50%; top:20%; transform:translateX(-50%); background:#fff; border:1px solid var(--line); border-radius:8px; padding:14px; width:420px; display:none; z-index:10; box-shadow:0 4px 20px rgba(0,0,0,.15); }
+  #noteform input, #noteform textarea, #noteform select { width:100%; margin:4px 0 8px; font:inherit; font-size:14px; }
+  .hit { display:flex; gap:6px; align-items:flex-start; padding:4px 0; border-bottom:1px dashed var(--line); font-size:13px; }
+  .hit b { background:var(--note); font-weight:normal; }
 </style>
 </head>
 <body>
@@ -60,6 +67,14 @@
   </div>
 </div>
 <button id="drawer" onclick="document.getElementById('right').classList.toggle('open')">面板</button>
+<div id="float"><button id="btn-note">批注</button><button id="btn-search">查找</button></div>
+<div id="noteform">
+  <div class="muted" id="nf-quote"></div>
+  <select id="nf-target"><option value="">新建批注</option></select>
+  <input id="nf-title" placeholder="标题">
+  <textarea id="nf-comment" rows="3" placeholder="说明（可空）"></textarea>
+  <button id="nf-ok">保存</button> <button id="nf-cancel">取消</button>
+</div>
 <div id="toast"></div>
 <script>
 const state = { chapters: [], current: null, notes: [], review: null, tab: 'notes' };
@@ -198,6 +213,89 @@ function render() { if (!state.current) return; renderText(); renderNotes(); ren
 
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => setTab(b.dataset.tab));
 $('#allnotes').onchange = renderNotes;
+
+let sel = null; // {quote, index}
+function selectionOffset() {
+  const s = window.getSelection();
+  if (!s || s.isCollapsed || !state.current) return null;
+  const range = s.getRangeAt(0);
+  const box = $('#text');
+  if (!box.contains(range.commonAncestorContainer)) return null;
+  const quote = s.toString().replace(/\n/g, '').trim();
+  if (!quote) return null;
+  // 选区之前的纯文本长度 → 在渲染文本中的偏移；渲染时把空行压成段落，所以用 quote 在原文中的第 k 次出现对齐
+  const pre = document.createRange(); pre.selectNodeContents(box); pre.setEnd(range.startContainer, range.startOffset);
+  const before = pre.toString();
+  const k = before.split(quote).length - 1; // 选区前出现了 k 次
+  let idx = -1, from = 0;
+  for (let i = 0; i <= k; i++) { idx = state.current.text.indexOf(quote, from); if (idx < 0) break; from = idx + quote.length; }
+  return { quote, index: idx >= 0 ? idx : undefined };
+}
+document.addEventListener('mouseup', e => {
+  if (e.target.closest('#float') || e.target.closest('#noteform')) return;
+  setTimeout(() => {
+    sel = selectionOffset();
+    const f = $('#float');
+    if (!sel) { f.style.display = 'none'; return; }
+    const r = window.getSelection().getRangeAt(0).getBoundingClientRect();
+    f.style.display = 'block'; f.style.left = (r.left + window.scrollX) + 'px'; f.style.top = (r.top + window.scrollY - 36) + 'px';
+  }, 0);
+});
+
+$('#btn-note').onclick = () => {
+  if (!sel) return;
+  $('#float').style.display = 'none';
+  $('#nf-quote').textContent = '「' + sel.quote.slice(0, 60) + '」';
+  $('#nf-target').innerHTML = '<option value="">新建批注</option>' + state.notes.filter(n => n.status === '未处理').map(n => `<option value="${n.id}">加入 ${n.id} ${esc(n.title)}</option>`).join('');
+  $('#nf-title').value = sel.quote.slice(0, 20); $('#nf-comment').value = '';
+  $('#noteform').style.display = 'block'; $('#nf-title').focus();
+};
+$('#nf-cancel').onclick = () => $('#noteform').style.display = 'none';
+$('#nf-target').onchange = () => { const isNew = !$('#nf-target').value; $('#nf-title').style.display = isNew ? '' : 'none'; };
+$('#nf-ok').onclick = () => {
+  const loc = { path: state.current.path, quote: sel.quote, index: sel.index };
+  const target = $('#nf-target').value;
+  $('#noteform').style.display = 'none';
+  act(() => target ? api('POST', `/api/notes/${target}/locations`, { locations: [loc] })
+                   : api('POST', '/api/notes', { title: $('#nf-title').value, comment: $('#nf-comment').value, locations: [loc] }));
+};
+
+$('#btn-search').onclick = () => { if (!sel) return; $('#float').style.display = 'none'; openSearch(sel.quote); };
+function openSearch(q) {
+  $('.tabs button[data-tab=search]').style.display = '';
+  setTab('search');
+  $('#right').classList.add('open');
+  $('#tab-search').innerHTML = `<input id="sq" value="${esc(q)}" style="width:100%;font:inherit">
+    <div style="margin:6px 0"><label><input type="checkbox" class="sc" value="chapters" checked> 正文</label>
+      <label><input type="checkbox" class="sc" value="outline"> 大纲</label>
+      <label><input type="checkbox" class="sc" value="characters"> 角色档案</label>
+      <label><input type="checkbox" class="sc" value="bible"> 账本</label>
+      <button id="sgo">查找</button></div>
+    <div id="hits" class="muted">…</div>
+    <div style="margin-top:8px"><select id="s-target"><option value="">新建批注并加入勾选项</option>${state.notes.filter(n => n.status === '未处理').map(n => `<option value="${n.id}">加入 ${n.id} ${esc(n.title)}</option>`).join('')}</select>
+      <button id="sadd">加入</button></div>`;
+  $('#sgo').onclick = runSearch; $('#sq').onkeydown = e => { if (e.key === 'Enter') runSearch(); };
+  $('#sadd').onclick = addHits;
+  runSearch();
+}
+async function runSearch() {
+  const q = $('#sq').value; const scope = [...document.querySelectorAll('.sc:checked')].map(c => c.value).join(',');
+  const hits = await api('GET', `/api/search?q=${encodeURIComponent(q)}&scope=${scope}`);
+  $('#hits').className = '';
+  $('#hits').innerHTML = hits.length ? hits.map((h, i) => `<label class="hit"><input type="checkbox" data-i="${i}">
+      <span><span class="muted">${h.chapter ? '第' + h.chapter + '章' : h.path}</span> …${esc(h.before)}<b>${esc(h.match)}</b>${esc(h.after)}…</span></label>`).join('') : '<div class="muted">没有命中</div>';
+  $('#hits').dataset.hits = JSON.stringify(hits);
+}
+function addHits() {
+  const hits = JSON.parse($('#hits').dataset.hits || '[]');
+  const chosen = [...document.querySelectorAll('#hits input:checked')].map(c => hits[+c.dataset.i]);
+  if (!chosen.length) { toast('先勾选命中'); return; }
+  const locs = chosen.map(h => ({ path: h.path, quote: h.match, index: h.index }));
+  const target = $('#s-target').value;
+  act(() => target ? api('POST', `/api/notes/${target}/locations`, { locations: locs })
+                   : api('POST', '/api/notes', { title: $('#sq').value.slice(0, 20), comment: '', locations: locs }));
+}
+
 loadProject().catch(e => $('#proj').textContent = '加载失败：' + e.message);
 </script>
 </body>
