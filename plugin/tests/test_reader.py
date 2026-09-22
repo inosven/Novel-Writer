@@ -1,7 +1,8 @@
-import os, sys, shutil, tempfile, unittest
+import json, os, sys, shutil, tempfile, threading, unittest, urllib.request, urllib.error
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "reader"))
 import store  # noqa: E402
+import reader  # noqa: E402
 
 FIXTURE = os.path.join(HERE, "fixtures", "demo-novel")
 
@@ -249,6 +250,89 @@ class NotesStoreTest(unittest.TestCase):
         notes = self.s.load()
         self.assertEqual([n["id"] for n in notes], ["A1", "A2"])
         self.assertEqual(notes[0]["extra"], ["- 备注：手写的一行"])
+
+
+class ServerTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+        shutil.copytree(FIXTURE, cls.tmp, dirs_exist_ok=True)
+        os.makedirs(os.path.join(cls.tmp, "reviews"))
+        with open(os.path.join(cls.tmp, "reviews", "Chapter-02.md"), "w", encoding="utf-8") as f:
+            f.write(REVIEW)
+        cls.srv = reader.make_server(cls.tmp, 0)
+        cls.port = cls.srv.server_address[1]
+        cls.thread = threading.Thread(target=cls.srv.serve_forever, daemon=True)
+        cls.thread.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.srv.shutdown()
+        shutil.rmtree(cls.tmp)
+
+    def req(self, method, path, body=None):
+        data = json.dumps(body).encode("utf-8") if body is not None else None
+        r = urllib.request.Request("http://127.0.0.1:%d%s" % (self.port, path), data=data, method=method,
+                                   headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(r) as resp:
+                return resp.status, json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read().decode("utf-8"))
+
+    def test_project_and_chapters(self):
+        s, body = self.req("GET", "/api/project")
+        self.assertEqual((s, body["title"], body["upto"]), (200, "夜班", 2))
+        s, body = self.req("GET", "/api/chapters")
+        self.assertEqual([c["n"] for c in body], [1, 2])
+        self.assertTrue(body[1]["has_review"])
+
+    def test_file_and_safety(self):
+        s, body = self.req("GET", "/api/file?path=chapters/Chapter-01.md")
+        self.assertEqual(s, 200)
+        self.assertTrue(body["text"].startswith("# 第1章 钥匙"))
+        s, body = self.req("GET", "/api/file?path=../run.sh")
+        self.assertEqual(s, 404)
+        s, body = self.req("GET", "/api/file?path=novel.yaml")
+        self.assertEqual(s, 404)
+
+    def test_search(self):
+        s, body = self.req("GET", "/api/search?q=%E9%92%A5%E5%8C%99&scope=chapters,outline")
+        self.assertEqual(s, 200)
+        self.assertTrue(any(h["path"] == "outline.md" for h in body))
+        self.assertTrue(any(h["chapter"] == 1 for h in body))
+
+    def test_notes_flow(self):
+        s, note = self.req("POST", "/api/notes", {"title": "t", "comment": "c",
+                                                  "locations": [{"path": "chapters/Chapter-01.md", "quote": "一把钥匙"}]})
+        self.assertEqual(s, 200)
+        nid = note["id"]
+        s, note = self.req("POST", "/api/notes/%s/locations" % nid, {"locations": [{"path": "outline.md", "quote": "铜钥匙"}]})
+        self.assertEqual(len(note["locations"]), 2)
+        s, note = self.req("POST", "/api/notes/%s" % nid, {"status": "作废"})
+        self.assertEqual(note["status"], "作废")
+        s, note = self.req("DELETE", "/api/notes/%s/locations" % nid, {"path": "outline.md", "quote": "铜钥匙"})
+        self.assertEqual(len(note["locations"]), 1)
+        s, body = self.req("GET", "/api/notes")
+        self.assertEqual(body[-1]["id"], nid)
+        s, body = self.req("POST", "/api/notes", {"title": "x", "locations": [{"path": "chapters/Chapter-01.md", "quote": "不存在的话"}]})
+        self.assertEqual(s, 400)
+        s, body = self.req("POST", "/api/notes/A99", {"status": "作废"})
+        self.assertEqual(s, 404)
+
+    def test_reviews(self):
+        s, body = self.req("GET", "/api/reviews/2")
+        self.assertEqual(len(body["items"]), 2)
+        s, body = self.req("GET", "/api/reviews/1")
+        self.assertEqual(s, 404)
+        s, body = self.req("POST", "/api/reviews/2/items/C1", {"reason": "接受"})
+        self.assertEqual(body["items"][0]["handled"], "未处理：接受")
+        s, body = self.req("POST", "/api/reviews/2/items/C1", {"reason": "again"})
+        self.assertEqual(s, 409)
+
+    def test_index(self):
+        r = urllib.request.urlopen("http://127.0.0.1:%d/" % self.port)
+        self.assertIn("text/html", r.headers["Content-Type"])
 
 
 if __name__ == "__main__":
