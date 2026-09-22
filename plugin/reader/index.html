@@ -52,7 +52,9 @@
   <div id="left">
     <div id="proj" class="muted">加载中…</div>
     <div id="chlist"></div>
-    <details style="margin-top:12px"><summary>其他文件</summary><div id="otherlist"></div></details>
+    <details style="margin-top:12px"><summary>其他文件</summary><div id="otherlist"></div>
+      <div style="margin-top:6px"><input id="otherpath" placeholder="其他 .md 文件路径" style="width:100%;font-size:12px"></div>
+    </details>
   </div>
   <div id="center"><div id="text" class="muted">左侧选一章</div></div>
   <div id="right">
@@ -160,7 +162,7 @@ function renderNotes() {
   $('#notes').innerHTML = list.length ? list.map(n => `<div class="item" id="note-${n.id}">
     <h4>${n.id} ${esc(n.title)}</h4>
     <div class="status">状态：${n.status}${n.comment ? ' · ' + esc(n.comment) : ''}</div>
-    ${n.locations.map(l => `<span class="loc ${l.done ? 'done' : ''} ${l.path === state.current?.path ? '' : 'other'}" data-path="${l.path}" data-quote="${esc(l.quote)}">${l.chapter ? '第' + l.chapter + '章' : l.path}「${esc(l.quote.slice(0, 30))}${l.quote.length > 30 ? '…' : ''}」${l.done ? ' 已处理' : ''}</span>`).join('')}
+    ${n.locations.map(l => `<span class="loc ${l.done ? 'done' : ''} ${l.path === state.current?.path ? '' : 'other'}" data-path="${esc(l.path)}" data-quote="${esc(l.quote)}">${l.chapter ? '第' + l.chapter + '章' : esc(l.path)}「${esc(l.quote.slice(0, 30))}${l.quote.length > 30 ? '…' : ''}」${l.done ? ' 已处理' : ''}</span><button data-act="delloc" data-id="${n.id}" data-path="${esc(l.path)}" data-quote="${esc(l.quote)}">删</button>`).join('')}
     <div style="margin-top:4px">
       <select data-act="status" data-id="${n.id}"><option ${n.status==='未处理'?'selected':''}>未处理</option><option ${n.status==='已处理'?'selected':''}>已处理</option><option ${n.status==='作废'?'selected':''}>作废</option></select>
       <button data-act="comment" data-id="${n.id}">编辑说明</button>
@@ -175,6 +177,7 @@ function renderNotes() {
     const c = prompt('说明', n.comment || ''); if (c === null) return;
     act(() => api('POST', '/api/notes/' + n.id, { comment: c }));
   });
+  $('#notes').querySelectorAll('button[data-act=delloc]').forEach(el => el.onclick = () => act(() => api('DELETE', '/api/notes/' + el.dataset.id + '/locations', { path: el.dataset.path, quote: el.dataset.quote })));
 }
 
 function renderReview() {
@@ -201,7 +204,15 @@ function renderReview() {
 }
 
 async function act(fn) {
-  try { await fn(); state.notes = await api('GET', '/api/notes'); render(); }
+  try {
+    await fn(); state.notes = await api('GET', '/api/notes'); render();
+    const st = $('#s-target');
+    if (st) {
+      const prev = st.value;
+      st.innerHTML = '<option value="">新建批注并加入勾选项</option>' + noteOptions('加入 ');
+      if ([...st.options].some(o => o.value === prev)) st.value = prev;
+    }
+  }
   catch (e) { toast('失败：' + e.message); }
 }
 function setTab(t) {
@@ -213,23 +224,39 @@ function render() { if (!state.current) return; renderText(); renderNotes(); ren
 
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => setTab(b.dataset.tab));
 $('#allnotes').onchange = renderNotes;
+$('#otherpath').addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  const p = e.target.value.trim();
+  if (p) loadFile(p);
+});
 
 let sel = null; // {quote, index}
+function noteOptions(prefix) {
+  return state.notes.filter(n => n.status === '未处理').map(n => `<option value="${n.id}">${prefix}${n.id} ${esc(n.title)}</option>`).join('');
+}
 function selectionOffset() {
   const s = window.getSelection();
   if (!s || s.isCollapsed || !state.current) return null;
   const range = s.getRangeAt(0);
   const box = $('#text');
   if (!box.contains(range.commonAncestorContainer)) return null;
-  const quote = s.toString().replace(/\n/g, '').trim();
+  const raw = s.toString();
+  let quote = raw.trim();
+  let trimmed = false;
+  if (/\n/.test(raw)) {
+    quote = raw.split(/\n+/).map(x => x.trim()).filter(Boolean)[0] || '';
+    trimmed = true;
+  }
   if (!quote) return null;
+  if (trimmed) toast('选区跨段，只取第一段');
   // 选区之前的纯文本长度 → 在渲染文本中的偏移；渲染时把空行压成段落，所以用 quote 在原文中的第 k 次出现对齐
   const pre = document.createRange(); pre.selectNodeContents(box); pre.setEnd(range.startContainer, range.startOffset);
   const before = pre.toString();
   const k = before.split(quote).length - 1; // 选区前出现了 k 次
   let idx = -1, from = 0;
   for (let i = 0; i <= k; i++) { idx = state.current.text.indexOf(quote, from); if (idx < 0) break; from = idx + quote.length; }
-  return { quote, index: idx >= 0 ? idx : undefined };
+  if (idx < 0) return null;
+  return { quote, index: idx };
 }
 document.addEventListener('mouseup', e => {
   if (e.target.closest('#float') || e.target.closest('#noteform')) return;
@@ -246,7 +273,9 @@ $('#btn-note').onclick = () => {
   if (!sel) return;
   $('#float').style.display = 'none';
   $('#nf-quote').textContent = '「' + sel.quote.slice(0, 60) + '」';
-  $('#nf-target').innerHTML = '<option value="">新建批注</option>' + state.notes.filter(n => n.status === '未处理').map(n => `<option value="${n.id}">加入 ${n.id} ${esc(n.title)}</option>`).join('');
+  $('#nf-target').innerHTML = '<option value="">新建批注</option>' + noteOptions('加入 ');
+  $('#nf-target').value = '';
+  $('#nf-title').style.display = '';
   $('#nf-title').value = sel.quote.slice(0, 20); $('#nf-comment').value = '';
   $('#noteform').style.display = 'block'; $('#nf-title').focus();
 };
@@ -272,7 +301,7 @@ function openSearch(q) {
       <label><input type="checkbox" class="sc" value="bible"> 账本</label>
       <button id="sgo">查找</button></div>
     <div id="hits" class="muted">…</div>
-    <div style="margin-top:8px"><select id="s-target"><option value="">新建批注并加入勾选项</option>${state.notes.filter(n => n.status === '未处理').map(n => `<option value="${n.id}">加入 ${n.id} ${esc(n.title)}</option>`).join('')}</select>
+    <div style="margin-top:8px"><select id="s-target"><option value="">新建批注并加入勾选项</option>${noteOptions('加入 ')}</select>
       <button id="sadd">加入</button></div>`;
   $('#sgo').onclick = runSearch; $('#sq').onkeydown = e => { if (e.key === 'Enter') runSearch(); };
   $('#sadd').onclick = addHits;
@@ -283,7 +312,7 @@ async function runSearch() {
   const hits = await api('GET', `/api/search?q=${encodeURIComponent(q)}&scope=${scope}`);
   $('#hits').className = '';
   $('#hits').innerHTML = hits.length ? hits.map((h, i) => `<label class="hit"><input type="checkbox" data-i="${i}">
-      <span><span class="muted">${h.chapter ? '第' + h.chapter + '章' : h.path}</span> …${esc(h.before)}<b>${esc(h.match)}</b>${esc(h.after)}…</span></label>`).join('') : '<div class="muted">没有命中</div>';
+      <span><span class="muted">${h.chapter ? '第' + h.chapter + '章' : esc(h.path)}</span> …${esc(h.before)}<b>${esc(h.match)}</b>${esc(h.after)}…</span></label>`).join('') : '<div class="muted">没有命中</div>';
   $('#hits').dataset.hits = JSON.stringify(hits);
 }
 function addHits() {
