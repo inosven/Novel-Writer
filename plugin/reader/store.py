@@ -8,7 +8,7 @@ _LOCK = threading.RLock()
 
 NOTE_HEAD = re.compile(r"^## (A\d+) (.*)$")
 STATUS_LINE = re.compile(r"^- 状态：(未处理|已处理|作废)\s*$")
-LOC_LINE = re.compile(r"^- 位置：(.+?)「(.+)」( 已处理)?\s*$")
+LOC_LINE = re.compile(r"^- 位置：(.+?)「(.+)」\s*(.*?)\s*$")
 COMMENT_LINE = re.compile(r"^- 说明：(.*)$")
 CHAPTER_REF = re.compile(r"^第(\d+)章$")
 CHAPTER_FILE = re.compile(r"^chapters/Chapter-(\d+)\.md$")
@@ -25,12 +25,13 @@ def chapter_of(path):
 
 
 def _loc_from_line(m):
-    where, quote, done = m.group(1).strip(), m.group(2), bool(m.group(3))
+    where, quote, mark = m.group(1).strip(), m.group(2), m.group(3).strip()
+    done = (mark == "已处理")
     cm = CHAPTER_REF.match(where)
     if cm:
         n = int(cm.group(1))
-        return {"path": chapter_path(n), "chapter": n, "quote": quote, "done": done}
-    return {"path": where, "chapter": None, "quote": quote, "done": done}
+        return {"path": chapter_path(n), "chapter": n, "quote": quote, "done": done, "mark": mark}
+    return {"path": where, "chapter": None, "quote": quote, "done": done, "mark": mark}
 
 
 def parse_notes(text):
@@ -63,8 +64,10 @@ def parse_notes(text):
 
 
 def _loc_to_line(loc):
-    where = "第%d章" % loc["chapter"] if loc.get("chapter") else loc["path"]
-    return "- 位置：%s「%s」%s" % (where, loc["quote"], " 已处理" if loc.get("done") else "")
+    where = "第%d章" % loc["chapter"] if loc.get("chapter") is not None else loc["path"]
+    mark = loc.get("mark") or ("已处理" if loc.get("done") else "")
+    line = "- 位置：%s「%s」" % (where, loc["quote"])
+    return line + (" " + mark if mark else "")
 
 
 def serialize_notes(notes):
@@ -94,8 +97,12 @@ def find_quote(text, quote):
     return text.find(quote) if quote else -1
 
 
+MIN_ANCHOR = 8
+
+
 def expand_unique(text, quote, index=None, limit=120):
-    """把 quote 向两侧扩展直到在 text 中唯一；index 是选区在 text 中的偏移，缺省取首次出现。"""
+    """把 quote 向两侧扩展直到在 text 中唯一，再继续扩展到至少 MIN_ANCHOR 字符（唯一性因扩展只增不减而保持）；
+    index 是选区在 text 中的偏移，缺省取首次出现。"""
     if not quote or text.count(quote) <= 1:
         return quote
     start = index if index is not None and text[index:index + len(quote)] == quote else text.find(quote)
@@ -103,7 +110,7 @@ def expand_unique(text, quote, index=None, limit=120):
         return quote
     end = start + len(quote)
     step_left = True
-    while text.count(text[start:end]) > 1 and (end - start) < limit:
+    while (text.count(text[start:end]) > 1 or (end - start) < MIN_ANCHOR) and (end - start) < limit:
         if step_left and start > 0 and text[start - 1] != "\n":
             start -= 1
         elif end < len(text) and text[end] != "\n":
@@ -136,8 +143,11 @@ class NotesStore:
         return parse_notes(read_text(self.root, self.FILE))
 
     def save(self, notes):
-        with open(self._path(), "w", encoding="utf-8") as f:
+        path = self._path()
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             f.write(serialize_notes(notes))
+        os.replace(tmp, path)
 
     def _resolve(self, loc):
         path = loc["path"]
@@ -403,6 +413,9 @@ class ReviewStore:
             rel = self._rel(n)
             text = read_text(self.root, rel)
             new = mark_review_item(text, item_id, reason)
-            with open(os.path.join(self.root, rel), "w", encoding="utf-8") as f:
+            full = os.path.join(self.root, rel)
+            tmp = full + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
                 f.write(new)
+            os.replace(tmp, full)
             return parse_review(new)

@@ -42,6 +42,7 @@ SAMPLE = """# 作者批注
 ## A1 张飞自称"俺"
 - 状态：未处理
 - 位置：第4章「他见过俺兄长几回」
+- 位置：第4章「他又提俺哥」 未处理：原文已变
 - 位置：第5章「俺明日就去隆中」 已处理
 - 位置：bible/state.md「张飞……俺兄长」
 - 说明：前三章一律自称"我"。
@@ -61,9 +62,13 @@ class NotesTest(unittest.TestCase):
         self.assertEqual(a1["title"], '张飞自称"俺"')
         self.assertEqual(a1["status"], "未处理")
         self.assertEqual(a1["comment"], "前三章一律自称\"我\"。")
-        self.assertEqual(a1["locations"][0], {"path": "chapters/Chapter-04.md", "chapter": 4, "quote": "他见过俺兄长几回", "done": False})
-        self.assertEqual(a1["locations"][1]["done"], True)
-        self.assertEqual(a1["locations"][2], {"path": "bible/state.md", "chapter": None, "quote": "张飞……俺兄长", "done": False})
+        self.assertEqual(a1["locations"][0],
+                         {"path": "chapters/Chapter-04.md", "chapter": 4, "quote": "他见过俺兄长几回", "done": False, "mark": ""})
+        self.assertEqual(a1["locations"][1],
+                         {"path": "chapters/Chapter-04.md", "chapter": 4, "quote": "他又提俺哥", "done": False, "mark": "未处理：原文已变"})
+        self.assertEqual(a1["locations"][2]["done"], True)
+        self.assertEqual(a1["locations"][2]["mark"], "已处理")
+        self.assertEqual(a1["locations"][3], {"path": "bible/state.md", "chapter": None, "quote": "张飞……俺兄长", "done": False, "mark": ""})
         a3 = notes[1]
         self.assertEqual(a3["status"], "作废")
         self.assertEqual(a3["comment"], "")
@@ -185,17 +190,26 @@ class QuoteTest(unittest.TestCase):
 
     def test_expand_unique_extends(self):
         text = "他说俺去。她说俺不去。"
-        # "俺" 出现两次；给第二处的 index，应扩展到唯一
-        got = store.expand_unique(text, "俺", index=text.index("俺", 3))
+        # "俺" 出现两次；给第二处的 index，应扩展到唯一，且锚点仍覆盖原选区位置
+        idx = text.index("俺", 3)
+        got = store.expand_unique(text, "俺", index=idx)
         self.assertEqual(text.count(got), 1)
         self.assertIn("俺", got)
         self.assertTrue(got in text)
-        self.assertGreater(text.index(got), 3)
+        pos = text.find(got)
+        self.assertTrue(pos <= idx < pos + len(got))
 
     def test_expand_unique_limit(self):
         text = "俺俺俺俺俺俺"
         got = store.expand_unique(text, "俺", index=0, limit=3)
-        self.assertLessEqual(len(got), 3)
+        self.assertLessEqual(len(got), 3)  # limit 仍然优先于 MIN_ANCHOR
+
+    def test_expand_unique_min_anchor(self):
+        text = "他说俺去看看。她说俺不想去。谁问俺累不累。"
+        got = store.expand_unique(text, "俺", index=text.index("俺", 3))
+        self.assertEqual(text.count(got), 1)
+        self.assertGreaterEqual(len(got), store.MIN_ANCHOR)
+        self.assertIn(got, text)
 
     def test_find_quote(self):
         self.assertEqual(store.find_quote("abc", "bc"), 1)
