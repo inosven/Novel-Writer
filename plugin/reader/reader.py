@@ -121,6 +121,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(404, {"error": "未知路径"})
         except KeyError as e:
             return self._json(404, {"error": "不存在: %s" % e})
+        except ValueError as e:
+            return self._json(400, {"error": str(e)})
         except Exception as e:  # noqa: BLE001
             return self._json(500, {"error": str(e)})
 

@@ -2,6 +2,9 @@
 import glob
 import os
 import re
+import threading
+
+_LOCK = threading.RLock()
 
 NOTE_HEAD = re.compile(r"^## (A\d+) (.*)$")
 STATUS_LINE = re.compile(r"^- 状态：(未处理|已处理|作废)\s*$")
@@ -138,11 +141,12 @@ class NotesStore:
 
     def _resolve(self, loc):
         path = loc["path"]
+        full = safe_path(self.root, path)
+        if full is None:
+            raise ValueError("文件不存在或不允许: %s" % path)
         n = chapter_of(path)
-        try:
-            text = read_text(self.root, path)
-        except OSError:
-            raise ValueError("文件不存在: %s" % path)
+        with open(full, encoding="utf-8") as f:
+            text = f.read()
         quote = loc["quote"].replace("\n", "").strip()
         if find_quote(text, quote) < 0:
             raise ValueError("引用在 %s 中找不到: %s" % (path, quote))
@@ -156,41 +160,45 @@ class NotesStore:
         raise KeyError(note_id)
 
     def create(self, title, comment, locations):
-        notes = self.load()
-        note = {"id": next_note_id(notes), "title": (title or "").strip() or "未命名", "status": "未处理",
-                "comment": (comment or "").strip(), "locations": [self._resolve(l) for l in locations], "extra": []}
-        notes.append(note)
-        self.save(notes)
-        return note
+        with _LOCK:
+            notes = self.load()
+            note = {"id": next_note_id(notes), "title": (title or "").strip() or "未命名", "status": "未处理",
+                    "comment": (comment or "").strip(), "locations": [self._resolve(l) for l in locations], "extra": []}
+            notes.append(note)
+            self.save(notes)
+            return note
 
     def add_locations(self, note_id, locations):
-        notes = self.load()
-        note = self._get(notes, note_id)
-        for l in locations:
-            note["locations"].append(self._resolve(l))
-        self.save(notes)
-        return note
+        with _LOCK:
+            notes = self.load()
+            note = self._get(notes, note_id)
+            for l in locations:
+                note["locations"].append(self._resolve(l))
+            self.save(notes)
+            return note
 
     def update(self, note_id, status=None, comment=None, title=None):
-        notes = self.load()
-        note = self._get(notes, note_id)
-        if status is not None:
-            if status not in STATUSES:
-                raise ValueError("状态只能是 未处理/已处理/作废")
-            note["status"] = status
-        if comment is not None:
-            note["comment"] = comment.strip()
-        if title is not None and title.strip():
-            note["title"] = title.strip()
-        self.save(notes)
-        return note
+        with _LOCK:
+            notes = self.load()
+            note = self._get(notes, note_id)
+            if status is not None:
+                if status not in STATUSES:
+                    raise ValueError("状态只能是 未处理/已处理/作废")
+                note["status"] = status
+            if comment is not None:
+                note["comment"] = comment.strip()
+            if title is not None and title.strip():
+                note["title"] = title.strip()
+            self.save(notes)
+            return note
 
     def remove_location(self, note_id, path, quote):
-        notes = self.load()
-        note = self._get(notes, note_id)
-        note["locations"] = [l for l in note["locations"] if not (l["path"] == path and l["quote"] == quote)]
-        self.save(notes)
-        return note
+        with _LOCK:
+            notes = self.load()
+            note = self._get(notes, note_id)
+            note["locations"] = [l for l in note["locations"] if not (l["path"] == path and l["quote"] == quote)]
+            self.save(notes)
+            return note
 
 
 HAN = re.compile(r"[⺀-⿟々〇〡-〩〸-〻㐀-䶿一-鿿豈-﫿\U00020000-\U0003134f]")
@@ -391,9 +399,10 @@ class ReviewStore:
             return None
 
     def mark(self, n, item_id, reason):
-        rel = self._rel(n)
-        text = read_text(self.root, rel)
-        new = mark_review_item(text, item_id, reason)
-        with open(os.path.join(self.root, rel), "w", encoding="utf-8") as f:
-            f.write(new)
-        return parse_review(new)
+        with _LOCK:
+            rel = self._rel(n)
+            text = read_text(self.root, rel)
+            new = mark_review_item(text, item_id, reason)
+            with open(os.path.join(self.root, rel), "w", encoding="utf-8") as f:
+                f.write(new)
+            return parse_review(new)

@@ -251,6 +251,22 @@ class NotesStoreTest(unittest.TestCase):
         self.assertEqual([n["id"] for n in notes], ["A1", "A2"])
         self.assertEqual(notes[0]["extra"], ["- 备注：手写的一行"])
 
+    def test_resolve_rejects_unsafe_path(self):
+        with self.assertRaises(ValueError):
+            self.s.create("x", "", [{"path": "../outline.md", "quote": "钥匙"}])
+
+    def test_create_concurrent(self):
+        threads = [threading.Thread(target=self.s.create,
+                                     args=("t%d" % i, "", [{"path": "chapters/Chapter-01.md", "quote": "一把钥匙"}]))
+                   for i in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        notes = self.s.load()
+        self.assertEqual(len(notes), 8)
+        self.assertEqual({n["id"] for n in notes}, {"A%d" % i for i in range(1, 9)})
+
 
 class ServerTest(unittest.TestCase):
     @classmethod
@@ -319,6 +335,19 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(s, 400)
         s, body = self.req("POST", "/api/notes/A99", {"status": "作废"})
         self.assertEqual(s, 404)
+
+    def test_notes_location_path_safety(self):
+        s, body = self.req("POST", "/api/notes", {"title": "y", "locations": [{"path": "novel.yaml", "quote": "钥匙"}]})
+        self.assertEqual(s, 400)
+
+    def test_delete_bad_json(self):
+        r = urllib.request.Request("http://127.0.0.1:%d/api/notes/A1/locations" % self.port, data=b"{not json",
+                                   method="DELETE", headers={"Content-Type": "application/json"})
+        try:
+            urllib.request.urlopen(r)
+            self.fail("expected HTTPError")
+        except urllib.error.HTTPError as e:
+            self.assertEqual(e.code, 400)
 
     def test_reviews(self):
         s, body = self.req("GET", "/api/reviews/2")
