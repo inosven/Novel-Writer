@@ -55,6 +55,50 @@ class NotesTest(unittest.TestCase):
         self.assertIsNone(store.chapter_of("bible/state.md"))
 
 
+class SearchTest(unittest.TestCase):
+    def test_scope_files(self):
+        files = store.scope_files(FIXTURE, ["chapters"])
+        self.assertEqual(files, ["chapters/Chapter-01.md", "chapters/Chapter-02.md"])
+        files = store.scope_files(FIXTURE, ["outline", "characters", "bible"])
+        self.assertIn("outline.md", files)
+        self.assertIn("characters/林砚.md", files)
+        self.assertEqual([f for f in files if f.startswith("bible/")],
+                         ["bible/state.md", "bible/threads.md", "bible/timeline.md", "bible/facts.md"])
+
+    def test_search_chapters(self):
+        hits = store.search(FIXTURE, "钥匙", ["chapters"])
+        self.assertTrue(all(h["path"].startswith("chapters/") for h in hits))
+        self.assertEqual(hits[0]["chapter"], 1)
+        self.assertEqual(hits[0]["match"], "钥匙")
+        self.assertNotIn("\n", hits[0]["before"] + hits[0]["after"])
+        text = store.read_text(FIXTURE, hits[0]["path"])
+        self.assertEqual(text[hits[0]["index"]:hits[0]["index"] + 2], "钥匙")
+
+    def test_search_scope_and_cap(self):
+        only_outline = store.search(FIXTURE, "钥匙", ["outline"])
+        self.assertTrue(only_outline and all(h["path"] == "outline.md" for h in only_outline))
+        capped = store.search(FIXTURE, "，", ["chapters"], per_file=2)
+        self.assertLessEqual(sum(1 for h in capped if h["path"].endswith("01.md")), 2)
+        self.assertEqual(store.search(FIXTURE, "", ["chapters"]), [])
+
+    def test_list_chapters_and_project(self):
+        chs = store.list_chapters(FIXTURE)
+        self.assertEqual([c["n"] for c in chs], [1, 2])
+        self.assertEqual(chs[0]["title"], "钥匙")
+        self.assertEqual(chs[0]["words"], 247)
+        self.assertTrue(chs[0]["finalized"])
+        self.assertFalse(chs[0]["has_review"])
+        info = store.project_info(FIXTURE)
+        self.assertEqual(info, {"title": "夜班", "upto": 2, "planned": 6})
+
+    def test_safe_path(self):
+        self.assertTrue(store.safe_path(FIXTURE, "chapters/Chapter-01.md").endswith("Chapter-01.md"))
+        self.assertIsNone(store.safe_path(FIXTURE, "../run.sh"))
+        self.assertIsNone(store.safe_path(FIXTURE, "/etc/passwd"))
+        self.assertIsNone(store.safe_path(FIXTURE, "novel.yaml"))
+        self.assertIsNone(store.safe_path(FIXTURE, "chapters/Chapter-99.md"))
+
+
 class QuoteTest(unittest.TestCase):
     def test_expand_unique_already_unique(self):
         self.assertEqual(store.expand_unique("甲乙丙丁", "乙丙"), "乙丙")

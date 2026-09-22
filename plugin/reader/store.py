@@ -1,4 +1,5 @@
 """纯函数层：notes.md、检索、审稿报告。不含 HTTP。"""
+import glob
 import os
 import re
 
@@ -190,3 +191,111 @@ class NotesStore:
         note["locations"] = [l for l in note["locations"] if not (l["path"] == path and l["quote"] == quote)]
         self.save(notes)
         return note
+
+
+HAN = re.compile(r"[。、㐀-䶿一-鿿]")
+BIBLE_FILES = ["bible/state.md", "bible/threads.md", "bible/timeline.md", "bible/facts.md"]
+
+
+def count_han(text):
+    body = text.split("\n", 1)[1] if "\n" in text else ""
+    return len(HAN.findall(body))
+
+
+def _chapter_files(root):
+    files = []
+    for p in glob.glob(os.path.join(root, "chapters", "Chapter-*.md")):
+        rel = os.path.relpath(p, root)
+        if chapter_of(rel) is not None:
+            files.append(rel)
+    return sorted(files, key=lambda r: chapter_of(r))
+
+
+def scope_files(root, scopes):
+    files = []
+    for s in scopes:
+        if s == "chapters":
+            files += _chapter_files(root)
+        elif s == "outline" and os.path.exists(os.path.join(root, "outline.md")):
+            files.append("outline.md")
+        elif s == "characters":
+            files += sorted(os.path.relpath(p, root) for p in glob.glob(os.path.join(root, "characters", "*.md")))
+        elif s == "bible":
+            files += [b for b in BIBLE_FILES if os.path.exists(os.path.join(root, b))]
+    return files
+
+
+def search(root, q, scopes, per_file=50, ctx=30):
+    q = (q or "").replace("\n", "").strip()
+    if not q:
+        return []
+    hits = []
+    for rel in scope_files(root, scopes):
+        text = read_text(root, rel)
+        n = chapter_of(rel)
+        start = 0
+        count = 0
+        while count < per_file:
+            i = text.find(q, start)
+            if i < 0:
+                break
+            hits.append({
+                "path": rel, "chapter": n, "index": i,
+                "before": text[max(0, i - ctx):i].replace("\n", " "),
+                "match": q,
+                "after": text[i + len(q):i + len(q) + ctx].replace("\n", " "),
+            })
+            start = i + len(q)
+            count += 1
+    return hits
+
+
+def _upto(root):
+    try:
+        first = read_text(root, "bible/state.md").split("\n", 1)[0]
+    except OSError:
+        return 0
+    m = re.match(r"# 故事状态（截至第(\d+)章）", first)
+    return int(m.group(1)) if m else 0
+
+
+def list_chapters(root):
+    upto = _upto(root)
+    out = []
+    for rel in _chapter_files(root):
+        n = chapter_of(rel)
+        text = read_text(root, rel)
+        first = text.split("\n", 1)[0]
+        m = re.match(r"#\s*第\d+章\s*(.*)$", first)
+        title = (m.group(1) if m else first.lstrip("# ")).strip()
+        out.append({"n": n, "title": title, "words": count_han(text), "finalized": n <= upto,
+                    "has_review": os.path.exists(os.path.join(root, "reviews", "Chapter-%02d.md" % n))})
+    return out
+
+
+def project_info(root):
+    title = ""
+    try:
+        for line in read_text(root, "novel.yaml").splitlines():
+            m = re.match(r"^title:\s*(.*?)\s*(#.*)?$", line)
+            if m:
+                title = m.group(1).strip().strip("'\"")
+                break
+    except OSError:
+        pass
+    planned = 0
+    try:
+        planned = len(re.findall(r"^### 第\d+章", read_text(root, "outline.md"), re.M))
+    except OSError:
+        pass
+    return {"title": title, "upto": _upto(root), "planned": planned}
+
+
+def safe_path(root, rel):
+    if not rel or rel.startswith("/") or ".." in rel.split("/") or not rel.endswith(".md"):
+        return None
+    base = os.path.realpath(root)
+    full = os.path.realpath(os.path.join(base, rel))
+    if not full.startswith(base + os.sep) or not os.path.isfile(full):
+        return None
+    return full
