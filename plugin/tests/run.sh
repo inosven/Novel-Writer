@@ -305,7 +305,7 @@ test_reader_sh() {
   out="$(cd "$d" && bash "$SCRIPTS/reader.sh" start "$port2" 2>&1)"; code=$?
   assert_exit "reader.sh 端口占用时 start 退出 1" 1 $code
   [ -f "$d/.novel/reader.pid" ]; assert_exit "reader.sh 端口占用时不留 pid" 1 $?
-  kill "$occ" 2>/dev/null
+  kill "$occ" 2>/dev/null; wait "$occ" 2>/dev/null
 }
 
 # ---------- wordcount-hook.sh ----------
@@ -616,6 +616,47 @@ test_renumber() {
   assert_eq "renumber insert 末尾标题" "### 第7章: 尾声" "$(grep '^### 第7章' "$d/outline.md")"
 }
 
+# ---------- export.sh ----------
+test_export() {
+  local d out code
+  d="$(make_novel)"
+  printf '# 第3章 带<标签>&符号\n\n第三章草稿，含 <b>尖括号</b> 与 & 符号。\n\n第二段。\n' > "$d/chapters/Chapter-03.md"
+  (cd "$d" && bash "$SCRIPTS/export.sh" pdf) >/dev/null 2>&1
+  assert_exit "export 未知格式" 1 $?
+  out="$(cd "$d" && bash "$SCRIPTS/export.sh" txt 2>&1)"; code=$?
+  assert_exit "export txt 退出 0" 0 $code
+  assert_contains "export txt 报路径" "export/夜班.txt" "$out"
+  [ -f "$d/export/夜班.txt" ]; assert_exit "export txt 文件存在" 0 $?
+  assert_eq "export txt 首行书名" "夜班" "$(head -1 "$d/export/夜班.txt")"
+  assert_contains "export txt 含第1章标题" "第1章 钥匙" "$(cat "$d/export/夜班.txt")"
+  assert_contains "export txt 含第3章正文" "含 <b>尖括号</b> 与 & 符号" "$(cat "$d/export/夜班.txt")"
+  assert_eq "export txt 章序" "1" "$(awk '/^第1章 钥匙$/{a=NR} /^第2章 地址$/{b=NR} /^第3章 /{c=NR} END{print (a<b && b<c)?1:0}' "$d/export/夜班.txt")"
+  assert_not_contains "export txt 不含 markdown 标题井号" "# 第1章" "$(cat "$d/export/夜班.txt")"
+  out="$(cd "$d" && bash "$SCRIPTS/export.sh" epub 2>&1)"; code=$?
+  assert_exit "export epub 退出 0" 0 $code
+  [ -f "$d/export/夜班.epub" ]; assert_exit "export epub 文件存在" 0 $?
+  assert_eq "export epub mimetype 在第一个条目" "mimetype" "$(unzip -Z1 "$d/export/夜班.epub" | head -1)"
+  assert_eq "export epub mimetype 内容" "application/epub+zip" "$(unzip -p "$d/export/夜班.epub" mimetype)"
+  assert_contains "export epub container" "OEBPS/content.opf" "$(unzip -p "$d/export/夜班.epub" META-INF/container.xml)"
+  assert_eq "export epub 章节数" "3" "$(unzip -Z1 "$d/export/夜班.epub" | grep -c '^OEBPS/chapter-[0-9]*\.xhtml$')"
+  assert_contains "export epub opf 书名" "<dc:title>夜班</dc:title>" "$(unzip -p "$d/export/夜班.epub" OEBPS/content.opf)"
+  assert_contains "export epub 章节转义" "含 &lt;b&gt;尖括号&lt;/b&gt; 与 &amp; 符号" "$(unzip -p "$d/export/夜班.epub" OEBPS/chapter-03.xhtml)"
+  assert_contains "export epub 章标题转义" "<h1>第3章 带&lt;标签&gt;&amp;符号</h1>" "$(unzip -p "$d/export/夜班.epub" OEBPS/chapter-03.xhtml)"
+  assert_contains "export epub 段落" "<p>第二段。</p>" "$(unzip -p "$d/export/夜班.epub" OEBPS/chapter-03.xhtml)"
+  assert_contains "export epub 目录" "第2章 地址" "$(unzip -p "$d/export/夜班.epub" OEBPS/nav.xhtml)"
+  # 默认两种都出，输出目录可指定
+  out="$(cd "$d" && bash "$SCRIPTS/export.sh" 2>&1)"; code=$?
+  assert_exit "export 默认退出 0" 0 $code
+  assert_contains "export 默认含 txt" ".txt" "$out"
+  assert_contains "export 默认含 epub" ".epub" "$out"
+  out="$(cd "$d" && bash "$SCRIPTS/export.sh" txt out2 2>&1)"
+  [ -f "$d/out2/夜班.txt" ]; assert_exit "export 指定目录" 0 $?
+  # 没有正文时报错
+  rm -f "$d"/chapters/Chapter-*.md
+  (cd "$d" && bash "$SCRIPTS/export.sh" txt) >/dev/null 2>&1
+  assert_exit "export 无正文退出 1" 1 $?
+}
+
 test_wordcount
 test_bible_check
 test_context
@@ -629,6 +670,7 @@ test_renumber
 test_notes_integration
 test_python
 test_reader_sh
+test_export
 
 echo "passed: $PASS, failed: $FAIL"
 [ "$FAIL" -eq 0 ]
