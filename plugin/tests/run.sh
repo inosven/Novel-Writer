@@ -229,6 +229,16 @@ EOF
   assert_not_contains "context 章号前导零不含invalid" "invalid number" "$out"
 }
 
+# ---------- Python 单元测试（reader） ----------
+test_python() {
+  local out code
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "SKIP: python3 不存在，跳过 reader 测试"; return 0
+  fi
+  out="$(cd "$PLUGIN" && python3 -m unittest tests.test_reader 2>&1)"; code=$?
+  if [ "$code" -eq 0 ]; then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); echo "FAIL: reader python tests"; echo "$out" | tail -20; fi
+}
+
 # ---------- wordcount-hook.sh ----------
 test_hook() {
   local d out
@@ -547,6 +557,7 @@ test_rollback
 test_context_save
 test_context_prev_review
 test_renumber
+test_python
 
 echo "passed: $PASS, failed: $FAIL"
 [ "$FAIL" -eq 0 ]
