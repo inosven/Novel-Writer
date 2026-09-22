@@ -37,6 +37,7 @@ claude --plugin-dir /path/to/Novel-Writer/plugin
 | `/novel:rollback N` | 撤销第 N 章及之后的定稿：账本回到截至第 N-1 章，摘要移到备份，正文不动 |
 | `/novel:insert K [标题]` | 在第 K 章位置插入一章，后面的章号后移。只能在已定稿章之后 |
 | `/novel:delete K` | 删除第 K 章，正文和大纲条目移到 `.trash/`，后面的章号前移。只能删未定稿的章 |
+| `/novel:read [端口]` | 打开阅读界面：通读、选中批注、跨文件查找、看审稿报告。`/novel:read stop` 停止 |
 | `/novel:status` | 进度 |
 
 典型循环：`write 3` → 自己读、随手改 → `review 3` → `revise 3` → `finalize 3` → `write 4`。想省事就 `auto 6`，它会一章章跑下去，只在复审后还剩 critical 时停下来找你。每次重审前旧报告会改名为 `reviews/Chapter-NN.v1.md` 留底，复审时审稿会读上一版：沿用编号和严重度，已标"未处理"的条目不再提出。
@@ -46,6 +47,10 @@ claude --plugin-dir /path/to/Novel-Writer/plugin
 定稿后想推倒重写某一章：`rollback N` 把账本恢复到该章定稿前的快照（每次 finalize 前自动存在 `bible/.history/before-NN/`），第 N 章起的摘要移到 `bible/.history/rollback-<时间戳>/` 备份，正文和审稿报告留在原地。然后改或 `write N` 重写，再 review、finalize。只有加入快照功能之后定稿的章才能回滚。
 
 调整章节结构：`insert K` 和 `delete K` 会改文件名、`outline.md` 的章标题、大纲和账本里所有"第N章"字样、伏笔表的引入章和预计回收列。两者都只在已定稿边界之后操作，要动已定稿的章先 `rollback`。表格里的裸数字不会改，改完自己看一眼。
+
+## 阅读界面
+
+`/novel:read` 在本机起一个小服务（只用 Python 3 标准库，只监听 127.0.0.1），浏览器里通读正文。选中一段文字可以"批注"（这里有问题）或"查找"（同样的话全书还有哪些地方，默认搜正文，可勾选大纲、角色档案、账本），查找命中能勾选后加入同一条批注。批注存在项目根目录 `notes.md`，攒够了运行 `/novel:revise N`，编辑连同审稿报告一起处理，处理过的位置标"已处理"。审稿报告条目也在界面里定位到正文，可以直接标"未处理"（不改）。
 
 ## 指定模型
 
@@ -66,6 +71,7 @@ claude --plugin-dir /path/to/Novel-Writer/plugin
 my-novel/
 ├── novel.yaml          书名、题材包、每章字数、各子代理用的模型
 ├── outline.md          大纲
+├── notes.md            作者批注
 ├── characters/         角色档案
 ├── chapters/           正文 Chapter-01.md …
 ├── summaries/          定稿后的章节摘要

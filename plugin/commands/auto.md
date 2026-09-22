@@ -19,7 +19,7 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/*), Bash(ls *), Bash(mv *), Re
 
 1. **写**。`chapters/Chapter-CC.md` 不存在就按 write.md 的步骤写；已存在就当作现成草稿，跳过写，不问是否覆盖。
 2. **审**。按 review.md 的步骤审（已有报告先归档）。
-3. **修**。报告里有 critical 或 major 就按 revise.md 的步骤修；revise 自带复审。没有就跳过。
+3. **修**。报告里有 critical 或 major，或 `notes.md` 里有状态未处理、位置在第 C 章且该位置未标已处理的批注，就按 revise.md 的步骤修；revise 自带复审。都没有就跳过。
 4. **判**。取最新的 `reviews/Chapter-CC.md`：critical 为 0 就继续；仍有 critical 就停下，进入"结束"，不定稿。
 5. **定稿**。按 finalize.md 的步骤定稿，跳过它的软检查（第 4 步已确认 critical 为 0）。bible-check 失败也停下，进入"结束"。
 6. 进入下一章。
