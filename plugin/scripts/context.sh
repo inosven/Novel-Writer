@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
-# 用法：context.sh N write|review
+# 用法：context.sh N write|review [--save]
 # 在小说目录下运行。确定性地组装写作/审稿第 N 章所需的全部上下文，输出到 stdout。
+# 带 --save 时改为写到 .novel/context-NN-<mode>.md（覆盖旧文件），stdout 只打印该文件的绝对路径。
 # 前置检查失败时把原因写到 stderr 并退出 1。
 set -u
 
 die() { echo "$*" >&2; exit 1; }
 section() { printf '\n===== %s =====\n' "$1"; }
 
-[ $# -eq 2 ] || die "用法: context.sh N write|review"
-N="$1"; MODE="$2"
+[ $# -eq 2 ] || [ $# -eq 3 ] || die "用法: context.sh N write|review [--save]"
+N="$1"; MODE="$2"; SAVE=0
+if [ $# -eq 3 ]; then
+  [ "$3" = "--save" ] || die "第三个参数只能是 --save: $3"
+  SAVE=1
+fi
 case "$N" in ''|*[!0-9]*) die "章号必须是数字: $N";; esac
 N=$((10#$N))
 [ "$MODE" = write ] || [ "$MODE" = review ] || die "模式必须是 write 或 review: $MODE"
@@ -51,6 +56,13 @@ ENTRY="$(LC_ALL=C awk -v n="$N" '
 CHARS="$(printf '%s\n' "$ENTRY" | sed -n 's/^\*\*出场角色\*\*[：:][[:space:]]*//p' | head -1 | perl -CSD -pe 'use utf8; s/[,，、]/\n/g' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$')"
 
 # ---------- 输出 ----------
+OUT_FILE=""
+if [ "$SAVE" -eq 1 ]; then
+  mkdir -p .novel || die "无法创建 .novel/ 目录"
+  OUT_FILE="$(pwd)/.novel/context-${NN}-${MODE}.md"
+  exec 3>&1 > "$OUT_FILE" || die "无法写入 ${OUT_FILE}"
+fi
+
 section "项目信息"
 cat novel.yaml
 
@@ -137,4 +149,8 @@ if [ "$MODE" = review ]; then
       done
     done
   fi
+fi
+
+if [ "$SAVE" -eq 1 ]; then
+  echo "$OUT_FILE" >&3
 fi
