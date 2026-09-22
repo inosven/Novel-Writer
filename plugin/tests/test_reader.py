@@ -55,5 +55,78 @@ class NotesTest(unittest.TestCase):
         self.assertIsNone(store.chapter_of("bible/state.md"))
 
 
+class QuoteTest(unittest.TestCase):
+    def test_expand_unique_already_unique(self):
+        self.assertEqual(store.expand_unique("甲乙丙丁", "乙丙"), "乙丙")
+
+    def test_expand_unique_extends(self):
+        text = "他说俺去。她说俺不去。"
+        # "俺" 出现两次；给第二处的 index，应扩展到唯一
+        got = store.expand_unique(text, "俺", index=text.index("俺", 3))
+        self.assertEqual(text.count(got), 1)
+        self.assertIn("俺", got)
+        self.assertTrue(got in text)
+        self.assertGreater(text.index(got), 3)
+
+    def test_expand_unique_limit(self):
+        text = "俺俺俺俺俺俺"
+        got = store.expand_unique(text, "俺", index=0, limit=3)
+        self.assertLessEqual(len(got), 3)
+
+    def test_find_quote(self):
+        self.assertEqual(store.find_quote("abc", "bc"), 1)
+        self.assertEqual(store.find_quote("abc", "x"), -1)
+
+
+class NotesStoreTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        shutil.copytree(FIXTURE, self.tmp, dirs_exist_ok=True)
+        self.s = store.NotesStore(self.tmp)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    def test_create_and_load(self):
+        n = self.s.create("钥匙颜色", "前后不一", [{"path": "chapters/Chapter-01.md", "quote": "铜钥匙"}])
+        self.assertEqual(n["id"], "A1")
+        self.assertEqual(n["locations"][0]["chapter"], 1)
+        self.assertTrue(os.path.exists(os.path.join(self.tmp, "notes.md")))
+        again = self.s.load()
+        self.assertEqual(again[0]["title"], "钥匙颜色")
+        self.assertEqual(again[0]["comment"], "前后不一")
+
+    def test_create_rejects_missing_quote(self):
+        with self.assertRaises(ValueError):
+            self.s.create("x", "", [{"path": "chapters/Chapter-01.md", "quote": "这段话不存在于正文"}])
+
+    def test_add_locations_and_remove(self):
+        self.s.create("t", "", [{"path": "chapters/Chapter-01.md", "quote": "铜钥匙"}])
+        n = self.s.add_locations("A1", [{"path": "outline.md", "quote": "铜钥匙"}])
+        self.assertEqual(len(n["locations"]), 2)
+        self.assertIsNone(n["locations"][1]["chapter"])
+        n = self.s.remove_location("A1", "outline.md", "铜钥匙")
+        self.assertEqual(len(n["locations"]), 1)
+
+    def test_update(self):
+        self.s.create("t", "", [{"path": "chapters/Chapter-01.md", "quote": "铜钥匙"}])
+        n = self.s.update("A1", status="已处理", comment="改了")
+        self.assertEqual(n["status"], "已处理")
+        self.assertEqual(self.s.load()[0]["comment"], "改了")
+        with self.assertRaises(ValueError):
+            self.s.update("A1", status="随便")
+        with self.assertRaises(KeyError):
+            self.s.update("A9", status="作废")
+
+    def test_ids_increase_and_unknown_lines_kept(self):
+        self.s.create("a", "", [{"path": "chapters/Chapter-01.md", "quote": "铜钥匙"}])
+        with open(os.path.join(self.tmp, "notes.md"), "a", encoding="utf-8") as f:
+            f.write("- 备注：手写的一行\n")
+        self.s.create("b", "", [{"path": "chapters/Chapter-02.md", "quote": "拆迁"}])
+        notes = self.s.load()
+        self.assertEqual([n["id"] for n in notes], ["A1", "A2"])
+        self.assertEqual(notes[0]["extra"], ["- 备注：手写的一行"])
+
+
 if __name__ == "__main__":
     unittest.main()
