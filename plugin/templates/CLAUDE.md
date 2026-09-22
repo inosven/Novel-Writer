@@ -6,7 +6,7 @@
 
 - `novel.yaml`：书名、题材包、每章字数、各子代理用的模型
 - `outline.md`：大纲，每章一个 `### 第N章: 标题` 条目
-- notes.md：作者批注，由 /novel:read 界面写入，/novel:revise 处理
+- `notes.md`：作者批注，由 /novel:read 界面写入，/novel:revise 处理
 - `characters/`：角色档案
 - `chapters/Chapter-NN.md`：正文
 - `summaries/`：定稿后的章节摘要
@@ -28,7 +28,7 @@
 - `/novel:insert K [标题]`：在第 K 章位置插入一章，后面章号后移（只能在已定稿章之后）
 - `/novel:delete K`：删除第 K 章，移到 `.trash/`，后面章号前移（只能删未定稿的章）
 - `/novel:status`：进度
-- /novel:read [端口]：阅读界面，批注和跨文件查找
+- `/novel:read [端口]`：阅读界面，批注和跨文件查找
 
 写、审、修、定稿、auto 都可以在章号后加模型覆盖：`/novel:write 5 opus` 或 `/novel:auto 8 writer=opus,reviewer=haiku`。不加就按 `novel.yaml` 的 `models` 段。
 

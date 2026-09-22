@@ -37,7 +37,7 @@ claude --plugin-dir /path/to/Novel-Writer/plugin
 | `/novel:rollback N` | 撤销第 N 章及之后的定稿：账本回到截至第 N-1 章，摘要移到备份，正文不动 |
 | `/novel:insert K [标题]` | 在第 K 章位置插入一章，后面的章号后移。只能在已定稿章之后 |
 | `/novel:delete K` | 删除第 K 章，正文和大纲条目移到 `.trash/`，后面的章号前移。只能删未定稿的章 |
-| `/novel:read [端口]` | 打开阅读界面：通读、选中批注、跨文件查找、看审稿报告。`/novel:read stop` 停止 |
+| `/novel:read [端口\|stop]` | 打开阅读界面：通读、选中批注、跨文件查找、看审稿报告；`stop` 停止 |
 | `/novel:status` | 进度 |
 
 典型循环：`write 3` → 自己读、随手改 → `review 3` → `revise 3` → `finalize 3` → `write 4`。想省事就 `auto 6`，它会一章章跑下去，只在复审后还剩 critical 时停下来找你。每次重审前旧报告会改名为 `reviews/Chapter-NN.v1.md` 留底，复审时审稿会读上一版：沿用编号和严重度，已标"未处理"的条目不再提出。
