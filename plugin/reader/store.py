@@ -211,13 +211,16 @@ class NotesStore:
             return note
 
 
-HAN = re.compile(r"[⺀-⿟々〇〡-〩〸-〻㐀-䶿一-鿿豈-﫿\U00020000-\U0003134f]")
+# 字数规则（与 scripts/wordcount.sh 一致）：汉字、假名、韩文逐字计，拼音文字按词计，标点不算
+_CJK = r"[\u2e80-\u2fdf\u3005\u3007\u3021-\u3029\u3038-\u303b\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\U00020000-\U0003134f\u3040-\u30ff\u31f0-\u31ff\u1100-\u11ff\u3130-\u318f\uac00-\ud7af]"
+_WORD = r"(?:(?!" + _CJK + r")[^\W_])+"
+COUNT_UNIT = re.compile(_CJK + r"|" + _WORD + r"(?:['\u2019]" + _WORD + r")*")
 BIBLE_FILES = ["bible/state.md", "bible/threads.md", "bible/timeline.md", "bible/facts.md"]
 
 
-def count_han(text):
+def count_words(text):
     body = text.split("\n", 1)[1] if "\n" in text else ""
-    return len(HAN.findall(body))
+    return len(COUNT_UNIT.findall(body))
 
 
 def _chapter_files(root):
@@ -286,7 +289,7 @@ def list_chapters(root):
         first = text.split("\n", 1)[0]
         m = re.match(r"#\s*第\d+章\s*(.*)$", first)
         title = (m.group(1) if m else first.lstrip("# ")).strip()
-        out.append({"n": n, "title": title, "words": count_han(text), "finalized": n <= upto,
+        out.append({"n": n, "title": title, "words": count_words(text), "finalized": n <= upto,
                     "has_review": os.path.exists(os.path.join(root, "reviews", "Chapter-%02d.md" % n))})
     return out
 

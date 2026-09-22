@@ -1,6 +1,6 @@
 title: __TITLE__
 skill: __SKILL__            # .claude/skills/ 下的题材包目录名
-chapter_words: [3000, 5000] # 每章目标字数区间（汉字数）
+chapter_words: [3000, 5000] # 每章目标字数区间（中文按字、英文按词，标点不算）
 pov: 第三人称限知
 models:                     # 各子代理用的模型：opus / sonnet / haiku / fable / inherit（跟主对话相同）
   writer: opus              # 写正文，文笔和判断力最要紧

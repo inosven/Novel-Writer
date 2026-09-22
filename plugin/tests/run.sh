@@ -36,6 +36,15 @@ test_wordcount() {
   assert_eq "wordcount 第1章" "230" "$n"
   bash "$SCRIPTS/wordcount.sh" "$FIXTURE_SRC/chapters/Chapter-99.md" >/dev/null 2>&1
   assert_exit "wordcount 缺文件" 1 $?
+  # 中英日韩混排：CJK 逐字、拼音文字按词，标点不算
+  local mixed
+  mixed="$(mktemp)"
+  printf '# 标题 title\n\n他说 hello world，don'"'"'t stop。日本語テスト 한국어 123 — "quoted"\n' > "$mixed"
+  n="$(bash "$SCRIPTS/wordcount.sh" "$mixed")"
+  assert_eq "wordcount 混排计数" "17" "$n"
+  printf '# t\n\nIt was a bright cold day in April, and the clocks were striking thirteen.\n' > "$mixed"
+  assert_eq "wordcount 纯英文按词" "14" "$(bash "$SCRIPTS/wordcount.sh" "$mixed")"
+  rm -f "$mixed"
 }
 
 # ---------- bible-check.sh ----------
