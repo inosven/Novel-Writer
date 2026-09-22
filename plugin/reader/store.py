@@ -299,3 +299,101 @@ def safe_path(root, rel):
     if not full.startswith(base + os.sep) or not os.path.isfile(full):
         return None
     return full
+
+
+LEVEL_HEAD = re.compile(r"^## (critical|major|minor|suggestion)\s*$")
+ITEM_HEAD = re.compile(r"^### ([CMNS]\d+)\s+(.*)$")
+QUOTE_IN = re.compile(r'"([^"]+)"|"([^"]+)"|「([^」]+)」')
+FIELD = re.compile(r"^- (原文|依据|问题|建议|已处理|未处理)：(.*)$")
+
+
+def parse_review(text):
+    summary = ""
+    items = []
+    level = None
+    cur = None
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if line.strip() == "## 汇总":
+            for nxt in lines[i + 1:i + 3]:
+                if nxt.strip():
+                    summary = nxt.strip()
+                    break
+            continue
+        lm = LEVEL_HEAD.match(line)
+        if lm:
+            level = lm.group(1)
+            cur = None
+            continue
+        im = ITEM_HEAD.match(line)
+        if im and level:
+            cur = {"id": im.group(1), "level": level, "title": im.group(2).strip(), "quote": "",
+                   "evidence": "", "problem": "", "suggestion": "", "handled": ""}
+            items.append(cur)
+            continue
+        if cur is None:
+            continue
+        fm = FIELD.match(line)
+        if not fm:
+            continue
+        key, val = fm.group(1), fm.group(2).strip()
+        if key == "原文":
+            q = QUOTE_IN.search(val)
+            cur["quote"] = next((g for g in q.groups() if g), "") if q else val
+        elif key == "依据":
+            cur["evidence"] = val
+        elif key == "问题":
+            cur["problem"] = val
+        elif key == "建议":
+            cur["suggestion"] = val
+        else:
+            cur["handled"] = "%s：%s" % (key, val)
+    return {"summary": summary, "items": items}
+
+
+def mark_review_item(text, item_id, reason):
+    lines = text.splitlines()
+    start = None
+    for i, line in enumerate(lines):
+        im = ITEM_HEAD.match(line)
+        if im and im.group(1) == item_id:
+            start = i
+            break
+    if start is None:
+        raise KeyError(item_id)
+    end = len(lines)
+    for j in range(start + 1, len(lines)):
+        if lines[j].startswith("### ") or lines[j].startswith("## "):
+            end = j
+            break
+    block = lines[start:end]
+    if any(FIELD.match(l) and FIELD.match(l).group(1) in ("已处理", "未处理") for l in block):
+        raise ValueError("该条目已有处理标记")
+    while block and not block[-1].strip():
+        block.pop()
+    block.append("- 未处理：%s" % reason.strip())
+    block.append("")
+    new_lines = lines[:start] + block + lines[end:]
+    return "\n".join(new_lines).rstrip("\n") + "\n"
+
+
+class ReviewStore:
+    def __init__(self, root):
+        self.root = root
+
+    def _rel(self, n):
+        return "reviews/Chapter-%02d.md" % int(n)
+
+    def get(self, n):
+        try:
+            return parse_review(read_text(self.root, self._rel(n)))
+        except OSError:
+            return None
+
+    def mark(self, n, item_id, reason):
+        rel = self._rel(n)
+        text = read_text(self.root, rel)
+        new = mark_review_item(text, item_id, reason)
+        with open(os.path.join(self.root, rel), "w", encoding="utf-8") as f:
+            f.write(new)
+        return parse_review(new)

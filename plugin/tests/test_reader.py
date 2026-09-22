@@ -5,6 +5,37 @@ import store  # noqa: E402
 
 FIXTURE = os.path.join(HERE, "fixtures", "demo-novel")
 
+REVIEW = """# 第2章 审稿报告
+
+## 汇总
+critical 1 / major 1 / minor 0 / suggestion 0
+较上一版：已解决 0 条，保留 1 条，新增 1 条
+
+## critical
+
+### C1 地址不对
+- 原文："青石路 47 号"，另见"那栋楼"
+- 依据：bible/facts.md 地点
+- 问题：账本写的是 45 号
+- 建议：改成 45
+
+## major
+
+### M1 老陈突然知道太多
+- 原文："老陈说那栋楼去年就拆了"
+- 依据：characters/老陈.md
+- 问题：档案里他不住附近
+- 建议：加一句他表哥住那儿
+- 已处理：加了表哥
+
+## minor
+无
+
+## suggestion
+无
+"""
+
+
 SAMPLE = """# 作者批注
 
 ## A1 张飞自称"俺"
@@ -53,6 +84,50 @@ class NotesTest(unittest.TestCase):
         self.assertEqual(store.chapter_path(4), "chapters/Chapter-04.md")
         self.assertEqual(store.chapter_of("chapters/Chapter-12.md"), 12)
         self.assertIsNone(store.chapter_of("bible/state.md"))
+
+
+class ReviewTest(unittest.TestCase):
+    def test_parse(self):
+        r = store.parse_review(REVIEW)
+        self.assertEqual(r["summary"], "critical 1 / major 1 / minor 0 / suggestion 0")
+        self.assertEqual([i["id"] for i in r["items"]], ["C1", "M1"])
+        c1, m1 = r["items"]
+        self.assertEqual(c1["level"], "critical")
+        self.assertEqual(c1["title"], "地址不对")
+        self.assertEqual(c1["quote"], "青石路 47 号")
+        self.assertEqual(c1["evidence"], "bible/facts.md 地点")
+        self.assertEqual(c1["problem"], "账本写的是 45 号")
+        self.assertEqual(c1["suggestion"], "改成 45")
+        self.assertEqual(c1["handled"], "")
+        self.assertEqual(m1["quote"], "老陈说那栋楼去年就拆了")
+        self.assertEqual(m1["handled"], "已处理：加了表哥")
+
+    def test_mark(self):
+        new = store.mark_review_item(REVIEW, "C1", "作者接受")
+        self.assertIn("- 建议：改成 45\n- 未处理：作者接受\n\n## major", new)
+        self.assertEqual(store.parse_review(new)["items"][0]["handled"], "未处理：作者接受")
+        with self.assertRaises(ValueError):
+            store.mark_review_item(new, "C1", "再标一次")
+        with self.assertRaises(ValueError):
+            store.mark_review_item(REVIEW, "M1", "已处理的不能再标")
+        with self.assertRaises(KeyError):
+            store.mark_review_item(REVIEW, "C9", "x")
+
+    def test_review_store(self):
+        tmp = tempfile.mkdtemp()
+        try:
+            shutil.copytree(FIXTURE, tmp, dirs_exist_ok=True)
+            rs = store.ReviewStore(tmp)
+            self.assertIsNone(rs.get(2))
+            os.makedirs(os.path.join(tmp, "reviews"))
+            with open(os.path.join(tmp, "reviews", "Chapter-02.md"), "w", encoding="utf-8") as f:
+                f.write(REVIEW)
+            self.assertEqual(len(rs.get(2)["items"]), 2)
+            r = rs.mark(2, "C1", "接受")
+            self.assertEqual(r["items"][0]["handled"], "未处理：接受")
+            self.assertIn("- 未处理：接受", open(os.path.join(tmp, "reviews", "Chapter-02.md"), encoding="utf-8").read())
+        finally:
+            shutil.rmtree(tmp)
 
 
 class SearchTest(unittest.TestCase):
