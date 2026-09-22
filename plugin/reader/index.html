@@ -1,1 +1,204 @@
-<!doctype html><meta charset="utf-8"><title>NovelWriter</title><p>界面在 Task 6 实现。</p>
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>NovelWriter 阅读</title>
+<style>
+  :root { --bg:#faf8f4; --fg:#222; --muted:#777; --line:#e4dfd6; --note:#ffe58a; --rev:#cfe3ff; --crit:#d33; --done:#bbb; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:16px/1.9 -apple-system, "PingFang SC", "Noto Serif CJK SC", serif; color:var(--fg); background:var(--bg); }
+  #app { display:grid; grid-template-columns:220px 1fr 360px; height:100vh; }
+  #left, #right { overflow:auto; border-right:1px solid var(--line); padding:12px; font-size:14px; background:#fff; }
+  #right { border-right:0; border-left:1px solid var(--line); }
+  #center { overflow:auto; padding:32px 48px; }
+  #center h1 { font-size:22px; }
+  #center p { margin:0 0 1em; white-space:pre-wrap; }
+  .ch { padding:4px 6px; cursor:pointer; border-radius:4px; display:flex; justify-content:space-between; }
+  .ch:hover, .ch.active { background:#f1ede6; }
+  .ch small { color:var(--muted); }
+  .muted { color:var(--muted); }
+  mark { padding:0 1px; border-radius:2px; cursor:pointer; }
+  mark.note { background:var(--note); }
+  mark.rev { background:var(--rev); }
+  mark.crit { box-shadow:inset 3px 0 0 var(--crit); }
+  mark.done { background:transparent; border-bottom:1px dashed var(--done); }
+  mark.flash { outline:2px solid #f60; }
+  .tabs { display:flex; gap:8px; margin-bottom:8px; }
+  .tabs button { flex:1; padding:6px; border:1px solid var(--line); background:#fff; cursor:pointer; }
+  .tabs button.active { background:#f1ede6; font-weight:bold; }
+  .item { border:1px solid var(--line); border-radius:6px; padding:8px; margin-bottom:8px; }
+  .item h4 { margin:0 0 4px; font-size:14px; }
+  .item .loc { display:block; color:#356; cursor:pointer; text-decoration:underline dotted; margin:2px 0; }
+  .item .loc.done { color:var(--done); }
+  .item .loc.other { color:var(--muted); }
+  .item .status { font-size:12px; color:var(--muted); }
+  .item button, .item select { font-size:12px; margin-right:4px; }
+  .lvl-critical h4 { color:var(--crit); }
+  details summary { cursor:pointer; }
+  #toast { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:#333; color:#fff; padding:8px 14px; border-radius:6px; display:none; }
+  @media (max-width:1100px) { #app { grid-template-columns:200px 1fr; } #right { position:fixed; right:0; top:0; height:100vh; width:360px; transform:translateX(100%); transition:.2s; } #right.open { transform:none; } #drawer { display:block; } }
+  #drawer { display:none; position:fixed; right:12px; top:12px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="left">
+    <div id="proj" class="muted">加载中…</div>
+    <div id="chlist"></div>
+    <details style="margin-top:12px"><summary>其他文件</summary><div id="otherlist"></div></details>
+  </div>
+  <div id="center"><div id="text" class="muted">左侧选一章</div></div>
+  <div id="right">
+    <div class="tabs">
+      <button data-tab="notes" class="active">批注</button>
+      <button data-tab="review">审稿</button>
+      <button data-tab="search" style="display:none">查找</button>
+    </div>
+    <div id="tab-notes"><label><input type="checkbox" id="allnotes"> 显示全书批注</label><div id="notes"></div></div>
+    <div id="tab-review" style="display:none"></div>
+    <div id="tab-search" style="display:none"></div>
+  </div>
+</div>
+<button id="drawer" onclick="document.getElementById('right').classList.toggle('open')">面板</button>
+<div id="toast"></div>
+<script>
+const state = { chapters: [], current: null, notes: [], review: null, tab: 'notes' };
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+async function api(method, path, body) {
+  const r = await fetch(path, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+}
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 2500); }
+function chapterOf(path) { const m = /^chapters\/Chapter-(\d+)\.md$/.exec(path); return m ? parseInt(m[1], 10) : null; }
+
+async function loadProject() {
+  const [p, chs, notes] = await Promise.all([api('GET', '/api/project'), api('GET', '/api/chapters'), api('GET', '/api/notes')]);
+  state.chapters = chs; state.notes = notes;
+  $('#proj').textContent = `《${p.title}》 计划 ${p.planned} 章 · 账本截至第 ${p.upto} 章`;
+  $('#chlist').innerHTML = chs.map(c => `<div class="ch" data-path="chapters/Chapter-${String(c.n).padStart(2,'0')}.md">
+      <span>第${c.n}章 ${esc(c.title)}</span><small>${c.words}${c.finalized ? ' ✓' : ''}${c.has_review ? ' 审' : ''}</small></div>`).join('');
+  $('#otherlist').innerHTML = ['outline.md', 'bible/state.md', 'bible/threads.md', 'bible/timeline.md', 'bible/facts.md']
+    .map(f => `<div class="ch" data-path="${f}"><span>${f}</span></div>`).join('');
+  document.querySelectorAll('.ch').forEach(el => el.onclick = () => loadFile(el.dataset.path));
+}
+
+async function loadFile(path) {
+  const f = await api('GET', '/api/file?path=' + encodeURIComponent(path));
+  state.current = { path, text: f.text };
+  const n = chapterOf(path);
+  state.review = n ? await api('GET', '/api/reviews/' + n).catch(() => null) : null;
+  document.querySelectorAll('.ch').forEach(el => el.classList.toggle('active', el.dataset.path === path));
+  render();
+}
+
+function highlightRanges(text) {
+  const ranges = [];
+  for (const n of state.notes) for (const loc of n.locations) {
+    if (loc.path !== state.current.path) continue;
+    const i = text.indexOf(loc.quote);
+    if (i >= 0) ranges.push({ start: i, end: i + loc.quote.length, kind: 'note' + (loc.done || n.status !== '未处理' ? ' done' : ''), ref: 'note-' + n.id });
+  }
+  if (state.review) for (const it of state.review.items) {
+    if (!it.quote) continue;
+    const i = text.indexOf(it.quote);
+    if (i >= 0) ranges.push({ start: i, end: i + it.quote.length, kind: 'rev' + (it.level === 'critical' ? ' crit' : '') + (it.handled ? ' done' : ''), ref: 'rev-' + it.id });
+  }
+  return ranges.sort((a, b) => a.start - b.start);
+}
+
+function renderText() {
+  const text = state.current.text;
+  const ranges = highlightRanges(text);
+  let html = '', pos = 0;
+  for (const r of ranges) {
+    if (r.start < pos) continue; // 重叠的只画第一个
+    html += esc(text.slice(pos, r.start));
+    html += `<mark class="${r.kind}" data-ref="${r.ref}">${esc(text.slice(r.start, r.end))}</mark>`;
+    pos = r.end;
+  }
+  html += esc(text.slice(pos));
+  const paras = html.split(/\n{2,}/).map((p, i) => i === 0 && p.startsWith('# ') ? `<h1>${p.slice(2)}</h1>` : `<p>${p}</p>`);
+  $('#text').className = '';
+  $('#text').innerHTML = paras.join('');
+  document.querySelectorAll('#text mark').forEach(m => m.onclick = () => focusItem(m.dataset.ref));
+}
+
+function focusItem(ref) {
+  const [kind] = ref.split('-');
+  setTab(kind === 'note' ? 'notes' : 'review');
+  const el = document.getElementById(ref);
+  if (el) { el.scrollIntoView({ block: 'center' }); el.style.outline = '2px solid #f60'; setTimeout(() => el.style.outline = '', 1200); }
+}
+function jumpTo(quote) {
+  const marks = [...document.querySelectorAll('#text mark')].filter(m => m.textContent === quote);
+  if (!marks.length) { toast('未定位：' + quote.slice(0, 20)); return; }
+  marks[0].scrollIntoView({ block: 'center' }); marks[0].classList.add('flash'); setTimeout(() => marks[0].classList.remove('flash'), 1200);
+}
+
+function renderNotes() {
+  const all = $('#allnotes').checked;
+  const list = state.notes.filter(n => all || n.locations.some(l => l.path === state.current?.path));
+  $('#notes').innerHTML = list.length ? list.map(n => `<div class="item" id="note-${n.id}">
+    <h4>${n.id} ${esc(n.title)}</h4>
+    <div class="status">状态：${n.status}${n.comment ? ' · ' + esc(n.comment) : ''}</div>
+    ${n.locations.map(l => `<span class="loc ${l.done ? 'done' : ''} ${l.path === state.current?.path ? '' : 'other'}" data-path="${l.path}" data-quote="${esc(l.quote)}">${l.chapter ? '第' + l.chapter + '章' : l.path}「${esc(l.quote.slice(0, 30))}${l.quote.length > 30 ? '…' : ''}」${l.done ? ' 已处理' : ''}</span>`).join('')}
+    <div style="margin-top:4px">
+      <select data-act="status" data-id="${n.id}"><option ${n.status==='未处理'?'selected':''}>未处理</option><option ${n.status==='已处理'?'selected':''}>已处理</option><option ${n.status==='作废'?'selected':''}>作废</option></select>
+      <button data-act="comment" data-id="${n.id}">编辑说明</button>
+    </div></div>`).join('') : '<div class="muted">没有批注。选中正文文字后点"批注"。</div>';
+  $('#notes').querySelectorAll('.loc').forEach(el => el.onclick = async () => {
+    if (el.dataset.path !== state.current?.path) await loadFile(el.dataset.path);
+    jumpTo(el.dataset.quote);
+  });
+  $('#notes').querySelectorAll('select[data-act=status]').forEach(el => el.onchange = () => act(() => api('POST', '/api/notes/' + el.dataset.id, { status: el.value })));
+  $('#notes').querySelectorAll('button[data-act=comment]').forEach(el => el.onclick = () => {
+    const n = state.notes.find(x => x.id === el.dataset.id);
+    const c = prompt('说明', n.comment || ''); if (c === null) return;
+    act(() => api('POST', '/api/notes/' + n.id, { comment: c }));
+  });
+}
+
+function renderReview() {
+  const n = chapterOf(state.current?.path || '');
+  const box = $('#tab-review');
+  if (!n) { box.innerHTML = '<div class="muted">只有正文章节有审稿报告</div>'; return; }
+  if (!state.review) { box.innerHTML = `<div class="muted">没有报告。运行 /novel:review ${n}</div>`; return; }
+  const lv = ['critical', 'major', 'minor', 'suggestion'];
+  box.innerHTML = `<div class="status">${esc(state.review.summary)}</div>` + lv.map(l => {
+    const items = state.review.items.filter(i => i.level === l);
+    return `<h4 style="margin:10px 0 4px">${l} ${items.length}</h4>` + items.map(it => `<div class="item lvl-${l}" id="rev-${it.id}">
+      <h4>${it.id} ${esc(it.title)}</h4>
+      ${it.quote ? `<span class="loc ${it.handled ? 'done' : ''}" data-quote="${esc(it.quote)}">「${esc(it.quote.slice(0, 30))}」</span>` : ''}
+      <details><summary class="status">${it.handled ? esc(it.handled) : '未标记'}</summary>
+        <div>依据：${esc(it.evidence)}</div><div>问题：${esc(it.problem)}</div><div>建议：${esc(it.suggestion)}</div></details>
+      ${it.handled ? '' : `<button data-act="mark" data-id="${it.id}">标未处理</button>`}
+    </div>`).join('');
+  }).join('');
+  box.querySelectorAll('.loc').forEach(el => el.onclick = () => jumpTo(el.dataset.quote));
+  box.querySelectorAll('button[data-act=mark]').forEach(el => el.onclick = () => {
+    const reason = prompt('不改的原因'); if (!reason) return;
+    act(async () => { state.review = await api('POST', `/api/reviews/${n}/items/${el.dataset.id}`, { reason }); });
+  });
+}
+
+async function act(fn) {
+  try { await fn(); state.notes = await api('GET', '/api/notes'); render(); }
+  catch (e) { toast('失败：' + e.message); }
+}
+function setTab(t) {
+  state.tab = t;
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === t));
+  ['notes', 'review', 'search'].forEach(x => $('#tab-' + x).style.display = x === t ? '' : 'none');
+}
+function render() { if (!state.current) return; renderText(); renderNotes(); renderReview(); }
+
+document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => setTab(b.dataset.tab));
+$('#allnotes').onchange = renderNotes;
+loadProject().catch(e => $('#proj').textContent = '加载失败：' + e.message);
+</script>
+</body>
+</html>
