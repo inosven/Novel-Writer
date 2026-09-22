@@ -22,7 +22,7 @@ critical 1 / major 1 / minor 0 / suggestion 0
 ## major
 
 ### M1 老陈突然知道太多
-- 原文："老陈说那栋楼去年就拆了"
+- 原文：“老陈说那栋楼去年就拆了”
 - 依据：characters/老陈.md
 - 问题：档案里他不住附近
 - 建议：加一句他表哥住那儿
@@ -101,6 +101,10 @@ class ReviewTest(unittest.TestCase):
         self.assertEqual(c1["handled"], "")
         self.assertEqual(m1["quote"], "老陈说那栋楼去年就拆了")
         self.assertEqual(m1["handled"], "已处理：加了表哥")
+        # Test corner bracket quote parsing
+        corner_review = "## critical\n\n### C2 test\n- 原文：「甲乙」\n"
+        c2 = store.parse_review(corner_review)["items"][0]
+        self.assertEqual(c2["quote"], "甲乙")
 
     def test_mark(self):
         new = store.mark_review_item(REVIEW, "C1", "作者接受")

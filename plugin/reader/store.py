@@ -303,7 +303,7 @@ def safe_path(root, rel):
 
 LEVEL_HEAD = re.compile(r"^## (critical|major|minor|suggestion)\s*$")
 ITEM_HEAD = re.compile(r"^### ([CMNS]\d+)\s+(.*)$")
-QUOTE_IN = re.compile(r'"([^"]+)"|"([^"]+)"|「([^」]+)」')
+QUOTE_IN = re.compile('"([^"]+)"|“([^”]+)”|「([^」]+)」')
 FIELD = re.compile(r"^- (原文|依据|问题|建议|已处理|未处理)：(.*)$")
 
 
