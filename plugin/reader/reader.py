@@ -35,6 +35,19 @@ class Handler(BaseHTTPRequestHandler):
             return {}
         return json.loads(self.rfile.read(n).decode("utf-8"))
 
+    def _guard_write(self):
+        """写接口（POST/DELETE）的前置校验：只接受本机 Host，只接受 JSON 请求体。校验失败时自己写响应并返回 False。"""
+        port = self.server.server_address[1]
+        host = self.headers.get("Host", "")
+        if host not in ("127.0.0.1:%d" % port, "localhost:%d" % port):
+            self._json(403, {"error": "bad host"})
+            return False
+        ctype = self.headers.get("Content-Type", "")
+        if not ctype.startswith("application/json"):
+            self._json(415, {"error": "bad content-type"})
+            return False
+        return True
+
     def _index(self):
         path = os.path.join(HERE, "index.html")
         if not os.path.exists(path):
@@ -82,6 +95,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(500, {"error": str(e)})
 
     def do_POST(self):
+        if not self._guard_write():
+            return
         p = urlparse(self.path).path
         try:
             body = self._body()
@@ -112,6 +127,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(500, {"error": str(e)})
 
     def do_DELETE(self):
+        if not self._guard_write():
+            return
         p = urlparse(self.path).path
         try:
             body = self._body()

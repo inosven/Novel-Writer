@@ -377,6 +377,39 @@ class ServerTest(unittest.TestCase):
         r = urllib.request.urlopen("http://127.0.0.1:%d/" % self.port)
         self.assertIn("text/html", r.headers["Content-Type"])
 
+    def test_write_bad_content_type_rejected(self):
+        r = urllib.request.Request("http://127.0.0.1:%d/api/notes" % self.port, data=b"{}",
+                                   method="POST", headers={"Content-Type": "text/plain"})
+        try:
+            urllib.request.urlopen(r)
+            self.fail("expected HTTPError")
+        except urllib.error.HTTPError as e:
+            self.assertEqual(e.code, 415)
+
+    def test_write_bad_host_rejected(self):
+        r = urllib.request.Request("http://127.0.0.1:%d/api/notes" % self.port, data=b"{}", method="POST",
+                                   headers={"Content-Type": "application/json", "Host": "evil.example"})
+        try:
+            urllib.request.urlopen(r)
+            self.fail("expected HTTPError")
+        except urllib.error.HTTPError as e:
+            self.assertEqual(e.code, 403)
+
+    def test_readonly_endpoints_dont_write(self):
+        notes_path = os.path.join(self.tmp, "notes.md")
+        with open(notes_path, "w", encoding="utf-8") as f:
+            f.write("# 作者批注\n")
+        review_path = os.path.join(self.tmp, "reviews", "Chapter-02.md")
+        before = {p: os.stat(p).st_mtime_ns for p in (notes_path, review_path)}
+        self.req("GET", "/api/project")
+        self.req("GET", "/api/chapters")
+        self.req("GET", "/api/file?path=chapters/Chapter-01.md")
+        self.req("GET", "/api/search?q=%E9%92%A5%E5%8C%99&scope=chapters")
+        self.req("GET", "/api/notes")
+        self.req("GET", "/api/reviews/2")
+        after = {p: os.stat(p).st_mtime_ns for p in (notes_path, review_path)}
+        self.assertEqual(before, after)
+
 
 if __name__ == "__main__":
     unittest.main()
