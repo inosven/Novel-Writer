@@ -33,7 +33,7 @@ assert_not_contains() { # desc needle haystack
 test_wordcount() {
   local n
   n="$(bash "$SCRIPTS/wordcount.sh" "$FIXTURE_SRC/chapters/Chapter-01.md")"
-  assert_eq "wordcount 第1章" "247" "$n"
+  assert_eq "wordcount 第1章" "230" "$n"
   bash "$SCRIPTS/wordcount.sh" "$FIXTURE_SRC/chapters/Chapter-99.md" >/dev/null 2>&1
   assert_exit "wordcount 缺文件" 1 $?
 }
@@ -262,7 +262,7 @@ test_hook() {
   d="$(make_novel)"
   perl -CSD -ni -e 'print unless /^chapter_words:/' "$d/novel.yaml"
   out="$(cd "$d" && printf '{"tool_name":"Write","tool_input":{"file_path":"%s/chapters/Chapter-01.md"},"cwd":"%s"}' "$d" "$d" | bash "$PLUGIN/hooks/wordcount-hook.sh")"
-  assert_contains "hook 无字数区间报字数" "第1章当前 247 字。" "$out"
+  assert_contains "hook 无字数区间报字数" "第1章当前 230 字。" "$out"
   assert_not_contains "hook 无字数区间不报目标" "目标" "$out"
 }
 

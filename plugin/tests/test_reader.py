@@ -160,7 +160,7 @@ class SearchTest(unittest.TestCase):
         chs = store.list_chapters(FIXTURE)
         self.assertEqual([c["n"] for c in chs], [1, 2])
         self.assertEqual(chs[0]["title"], "钥匙")
-        self.assertEqual(chs[0]["words"], 247)
+        self.assertEqual(chs[0]["words"], 230)
         self.assertTrue(chs[0]["finalized"])
         self.assertFalse(chs[0]["has_review"])
         info = store.project_info(FIXTURE)
@@ -207,7 +207,7 @@ class NotesStoreTest(unittest.TestCase):
         shutil.rmtree(self.tmp)
 
     def test_create_and_load(self):
-        n = self.s.create("钥匙颜色", "前后不一", [{"path": "chapters/Chapter-01.md", "quote": "铜钥匙"}])
+        n = self.s.create("钥匙颜色", "前后不一", [{"path": "chapters/Chapter-01.md", "quote": "一把钥匙"}])
         self.assertEqual(n["id"], "A1")
         self.assertEqual(n["locations"][0]["chapter"], 1)
         self.assertTrue(os.path.exists(os.path.join(self.tmp, "notes.md")))
@@ -220,7 +220,7 @@ class NotesStoreTest(unittest.TestCase):
             self.s.create("x", "", [{"path": "chapters/Chapter-01.md", "quote": "这段话不存在于正文"}])
 
     def test_add_locations_and_remove(self):
-        self.s.create("t", "", [{"path": "chapters/Chapter-01.md", "quote": "铜钥匙"}])
+        self.s.create("t", "", [{"path": "chapters/Chapter-01.md", "quote": "一把钥匙"}])
         n = self.s.add_locations("A1", [{"path": "outline.md", "quote": "铜钥匙"}])
         self.assertEqual(len(n["locations"]), 2)
         self.assertIsNone(n["locations"][1]["chapter"])
@@ -228,7 +228,7 @@ class NotesStoreTest(unittest.TestCase):
         self.assertEqual(len(n["locations"]), 1)
 
     def test_update(self):
-        self.s.create("t", "", [{"path": "chapters/Chapter-01.md", "quote": "铜钥匙"}])
+        self.s.create("t", "", [{"path": "chapters/Chapter-01.md", "quote": "一把钥匙"}])
         n = self.s.update("A1", status="已处理", comment="改了")
         self.assertEqual(n["status"], "已处理")
         self.assertEqual(self.s.load()[0]["comment"], "改了")
@@ -238,7 +238,7 @@ class NotesStoreTest(unittest.TestCase):
             self.s.update("A9", status="作废")
 
     def test_ids_increase_and_unknown_lines_kept(self):
-        self.s.create("a", "", [{"path": "chapters/Chapter-01.md", "quote": "铜钥匙"}])
+        self.s.create("a", "", [{"path": "chapters/Chapter-01.md", "quote": "一把钥匙"}])
         with open(os.path.join(self.tmp, "notes.md"), "a", encoding="utf-8") as f:
             f.write("- 备注：手写的一行\n")
         self.s.create("b", "", [{"path": "chapters/Chapter-02.md", "quote": "拆迁"}])

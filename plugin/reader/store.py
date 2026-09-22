@@ -193,7 +193,7 @@ class NotesStore:
         return note
 
 
-HAN = re.compile(r"[。、㐀-䶿一-鿿]")
+HAN = re.compile(r"[⺀-⿟々〇〡-〩〸-〻㐀-䶿一-鿿豈-﫿\U00020000-\U0003134f]")
 BIBLE_FILES = ["bible/state.md", "bible/threads.md", "bible/timeline.md", "bible/facts.md"]
 
 
