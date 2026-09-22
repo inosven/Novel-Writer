@@ -87,6 +87,7 @@ shift_thread_cols() { # from delta
 }
 
 TEXT_FILES="outline.md"
+[ -f notes.md ] && TEXT_FILES="$TEXT_FILES notes.md"
 for f in state threads timeline facts; do [ -f "bible/$f.md" ] && TEXT_FILES="$TEXT_FILES bible/$f.md"; done
 
 stale=""

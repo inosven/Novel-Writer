@@ -118,6 +118,23 @@ if [ "$MODE" = review ]; then
   section "本章正文"
   cat "chapters/Chapter-$NN.md"
 
+  # 作者批注：notes.md 里位置在本章的批注块
+  if [ -f notes.md ]; then
+    notes_hit="$(N="$N" perl -CSD -0777 -ne '
+      use utf8;
+      my $n = $ENV{N};
+      my @blocks = split /^(?=## A\d+ )/m, $_;
+      for my $b (@blocks) {
+        next unless $b =~ /^## A\d+ /;
+        print $b =~ /\n\n\z/ ? $b : "$b\n" if $b =~ /^- 位置：第${n}章「/m;
+      }' notes.md)"
+    if [ -n "$notes_hit" ]; then
+      section "作者批注"
+      echo "（作者在阅读界面里标的问题。状态未处理且位置在本章的，审稿时不要重复提出，只核实；标了已处理的，核实是否改好。）"
+      printf '%s\n' "$notes_hit"
+    fi
+  fi
+
   # 上一版审稿报告：reviews/Chapter-NN.vK.md 里 K 最大的那份（当前 reviews/Chapter-NN.md 不算）
   prev_review=""
   prev_k=0

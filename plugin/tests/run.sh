@@ -239,6 +239,29 @@ test_python() {
   if [ "$code" -eq 0 ]; then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); echo "FAIL: reader python tests"; echo "$out" | tail -20; fi
 }
 
+# ---------- context.sh 作者批注 / renumber notes.md ----------
+test_notes_integration() {
+  local d out
+  d="$(make_novel)"
+  out="$(cd "$d" && bash "$SCRIPTS/context.sh" 2 review)"
+  assert_not_contains "context 无 notes.md 不出批注段" "===== 作者批注 =====" "$out"
+  printf '# 作者批注\n\n## A1 钥匙材质\n- 状态：未处理\n- 位置：第1章「铜钥匙」\n- 位置：第2章「拆迁」\n- 说明：前后不一\n\n## A2 只在第一章\n- 状态：已处理\n- 位置：第1章「雨从傍晚」 已处理\n\n## A3 第四章\n- 状态：未处理\n- 位置：第4章「开锁匠」\n' > "$d/notes.md"
+  out="$(cd "$d" && bash "$SCRIPTS/context.sh" 2 review)"
+  assert_contains "context 有批注出段" "===== 作者批注 =====" "$out"
+  assert_contains "context 含本章批注" "## A1 钥匙材质" "$out"
+  assert_contains "context 批注带状态" "- 状态：未处理" "$out"
+  assert_not_contains "context 不含无关章批注" "## A2 只在第一章" "$out"
+  assert_not_contains "context 不含未来章批注" "## A3 第四章" "$out"
+  out="$(cd "$d" && bash "$SCRIPTS/context.sh" 3 write)"
+  assert_not_contains "context write 模式无批注段" "===== 作者批注 =====" "$out"
+  # renumber 平移 notes.md
+  (cd "$d" && bash "$SCRIPTS/renumber.sh" insert 3 "新章" "x") >/dev/null
+  assert_contains "renumber 平移 notes 第4章→第5章" "- 位置：第5章「开锁匠」" "$(cat "$d/notes.md")"
+  assert_contains "renumber 不动 notes 第1章" "- 位置：第1章「铜钥匙」" "$(cat "$d/notes.md")"
+  (cd "$d" && bash "$SCRIPTS/renumber.sh" delete 3) >/dev/null
+  assert_contains "renumber 删除后 notes 复原" "- 位置：第4章「开锁匠」" "$(cat "$d/notes.md")"
+}
+
 # ---------- reader.sh ----------
 test_reader_sh() {
   local d out code port
@@ -585,6 +608,7 @@ test_rollback
 test_context_save
 test_context_prev_review
 test_renumber
+test_notes_integration
 test_python
 test_reader_sh
 
