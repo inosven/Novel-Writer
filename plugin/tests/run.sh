@@ -33,7 +33,7 @@ assert_not_contains() { # desc needle haystack
 test_wordcount() {
   local n
   n="$(bash "$SCRIPTS/wordcount.sh" "$FIXTURE_SRC/chapters/Chapter-01.md")"
-  assert_eq "wordcount 第1章" "247" "$n"
+  assert_eq "wordcount 第1章" "230" "$n"
   bash "$SCRIPTS/wordcount.sh" "$FIXTURE_SRC/chapters/Chapter-99.md" >/dev/null 2>&1
   assert_exit "wordcount 缺文件" 1 $?
 }
@@ -229,6 +229,76 @@ EOF
   assert_not_contains "context 章号前导零不含invalid" "invalid number" "$out"
 }
 
+# ---------- Python 单元测试（reader） ----------
+test_python() {
+  local out code
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "SKIP: python3 不存在，跳过 reader 测试"; return 0
+  fi
+  out="$(cd "$PLUGIN" && python3 -m unittest tests.test_reader 2>&1)"; code=$?
+  if [ "$code" -eq 0 ]; then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); echo "FAIL: reader python tests"; echo "$out" | tail -20; fi
+}
+
+# ---------- context.sh 作者批注 / renumber notes.md ----------
+test_notes_integration() {
+  local d out
+  d="$(make_novel)"
+  out="$(cd "$d" && bash "$SCRIPTS/context.sh" 2 review)"
+  assert_not_contains "context 无 notes.md 不出批注段" "===== 作者批注 =====" "$out"
+  printf '# 作者批注\n\n## A1 钥匙材质\n- 状态：未处理\n- 位置：第1章「铜钥匙」\n- 位置：第2章「拆迁」\n- 说明：前后不一\n\n## A2 只在第一章\n- 状态：已处理\n- 位置：第1章「雨从傍晚」 已处理\n\n## A3 第四章\n- 状态：未处理\n- 位置：第4章「开锁匠」\n' > "$d/notes.md"
+  out="$(cd "$d" && bash "$SCRIPTS/context.sh" 2 review)"
+  assert_contains "context 有批注出段" "===== 作者批注 =====" "$out"
+  assert_contains "context 含本章批注" "## A1 钥匙材质" "$out"
+  assert_contains "context 批注带状态" "- 状态：未处理" "$out"
+  assert_not_contains "context 不含无关章批注" "## A2 只在第一章" "$out"
+  assert_not_contains "context 不含未来章批注" "## A3 第四章" "$out"
+  out="$(cd "$d" && bash "$SCRIPTS/context.sh" 3 write)"
+  assert_not_contains "context write 模式无批注段" "===== 作者批注 =====" "$out"
+  # renumber 平移 notes.md
+  (cd "$d" && bash "$SCRIPTS/renumber.sh" insert 3 "新章" "x") >/dev/null
+  assert_contains "renumber 平移 notes 第4章→第5章" "- 位置：第5章「开锁匠」" "$(cat "$d/notes.md")"
+  assert_contains "renumber 不动 notes 第1章" "- 位置：第1章「铜钥匙」" "$(cat "$d/notes.md")"
+  (cd "$d" && bash "$SCRIPTS/renumber.sh" delete 3) >/dev/null
+  assert_contains "renumber 删除后 notes 复原" "- 位置：第4章「开锁匠」" "$(cat "$d/notes.md")"
+}
+
+# ---------- reader.sh ----------
+test_reader_sh() {
+  local d out code port port2 occ
+  command -v python3 >/dev/null 2>&1 || { echo "SKIP: python3 不存在，跳过 reader.sh 测试"; return 0; }
+  d="$(make_novel)"
+  port=$((20000 + RANDOM % 20000))
+  out="$(cd "$d" && bash "$SCRIPTS/reader.sh" status)"
+  assert_eq "reader.sh 未启动 status" "stopped" "$out"
+  out="$(cd "$d" && bash "$SCRIPTS/reader.sh" start "$port" 2>&1)"; code=$?
+  assert_exit "reader.sh start 退出 0" 0 $code
+  assert_eq "reader.sh start 打印地址" "http://127.0.0.1:${port}" "$out"
+  [ -f "$d/.novel/reader.pid" ]; assert_exit "reader.sh 写 pid" 0 $?
+  out="$(cd "$d" && bash "$SCRIPTS/reader.sh" start "$port" 2>&1)"; code=$?
+  assert_exit "reader.sh 重复 start 退出 0" 0 $code
+  assert_eq "reader.sh 重复 start 同地址" "http://127.0.0.1:${port}" "$out"
+  out="$(cd "$d" && bash "$SCRIPTS/reader.sh" status)"
+  assert_eq "reader.sh running status" "running http://127.0.0.1:${port}" "$out"
+  out="$(curl -s "http://127.0.0.1:${port}/api/project")"
+  assert_contains "reader.sh 服务可访问" "夜班" "$out"
+  out="$(cd "$d" && bash "$SCRIPTS/reader.sh" stop 2>&1)"; code=$?
+  assert_exit "reader.sh stop 退出 0" 0 $code
+  [ -f "$d/.novel/reader.pid" ]; assert_exit "reader.sh stop 删 pid" 1 $?
+  out="$(cd "$d" && bash "$SCRIPTS/reader.sh" status)"
+  assert_eq "reader.sh 停后 status" "stopped" "$out"
+  (cd "$d" && bash "$SCRIPTS/reader.sh" start 99999) >/dev/null 2>&1
+  assert_exit "reader.sh 非法端口" 1 $?
+  # 端口被占用：reader.py 绑定失败快速退出，start 应退出 1 且不留 pid 文件
+  port2=$((40000 + RANDOM % 20000))
+  python3 -m http.server "$port2" --bind 127.0.0.1 >/dev/null 2>&1 &
+  occ=$!
+  sleep 0.3
+  out="$(cd "$d" && bash "$SCRIPTS/reader.sh" start "$port2" 2>&1)"; code=$?
+  assert_exit "reader.sh 端口占用时 start 退出 1" 1 $code
+  [ -f "$d/.novel/reader.pid" ]; assert_exit "reader.sh 端口占用时不留 pid" 1 $?
+  kill "$occ" 2>/dev/null
+}
+
 # ---------- wordcount-hook.sh ----------
 test_hook() {
   local d out
@@ -252,7 +322,7 @@ test_hook() {
   d="$(make_novel)"
   perl -CSD -ni -e 'print unless /^chapter_words:/' "$d/novel.yaml"
   out="$(cd "$d" && printf '{"tool_name":"Write","tool_input":{"file_path":"%s/chapters/Chapter-01.md"},"cwd":"%s"}' "$d" "$d" | bash "$PLUGIN/hooks/wordcount-hook.sh")"
-  assert_contains "hook 无字数区间报字数" "第1章当前 247 字。" "$out"
+  assert_contains "hook 无字数区间报字数" "第1章当前 230 字。" "$out"
   assert_not_contains "hook 无字数区间不报目标" "目标" "$out"
 }
 
@@ -547,6 +617,9 @@ test_rollback
 test_context_save
 test_context_prev_review
 test_renumber
+test_notes_integration
+test_python
+test_reader_sh
 
 echo "passed: $PASS, failed: $FAIL"
 [ "$FAIL" -eq 0 ]

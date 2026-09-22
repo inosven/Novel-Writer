@@ -13,7 +13,7 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/*), Bash(ls *), Read, Agent
 2. 前置检查，任一不满足就说明原因并停止：
    - `chapters/Chapter-NN.md` 存在。
    - `bible/state.md` 第一行的"截至第M章"满足 M = N-1。M 不等于 N-1 时告诉用户当前截至章号和应该先处理的章。
-3. 软检查：`reviews/Chapter-NN.md` 不存在，或其中有未标"已处理"/"未处理"的 critical 条目时，警告用户并问是否继续。没确认就停止。
+3. 软检查：`reviews/Chapter-NN.md` 不存在，或其中有未标"已处理"/"未处理"的 critical 条目，或 `notes.md` 里有状态未处理、位置在第 N 章且该位置未标已处理的批注时，警告用户（说明是哪种情况、哪些编号）并问是否继续。没确认就停止。
 4. 运行 `${CLAUDE_PLUGIN_ROOT}/scripts/bible-snapshot.sh N`，把定稿前的账本存到 `bible/.history/before-NN/`（供 `/novel:rollback N` 使用）。失败就把输出给用户，停止。
 5. 运行 `${CLAUDE_PLUGIN_ROOT}/scripts/model.sh archivist "$1"` 取模型名（`$1` 是可选的模型覆盖，见下）。输出是 `inherit` 就不传 `model` 参数；否则调用子代理时把它作为 `model` 参数传入。
 6. 用 novel:archivist 子代理定稿。提示词："定稿第 N 章。"

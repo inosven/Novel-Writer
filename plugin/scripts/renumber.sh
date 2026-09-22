@@ -4,7 +4,7 @@
 # 在小说目录里运行。在第 K 章位置插入一章 / 删除第 K 章，并把后面的章号整体平移。
 # 只允许在已定稿边界之后操作：账本截至 M，insert 要求 M+1 ≤ K ≤ L+1，delete 要求 M+1 ≤ K ≤ L（L 为大纲章数）。
 # 平移范围：chapters/、reviews/（含 .vK）、summaries/ 的文件名；outline.md 的「### 第N章」标题；
-# outline.md 和 bible/*.md 里所有「第N章」字样。表格里的裸数字不动。
+# outline.md、bible/*.md 和 notes.md 里所有「第N章」字样。表格里的裸数字不动。
 # delete 把第 K 章的正文、报告和大纲条目移到 .trash/<时间戳>/，不删。
 set -u
 die() { echo "$*" >&2; exit 1; }
@@ -87,6 +87,7 @@ shift_thread_cols() { # from delta
 }
 
 TEXT_FILES="outline.md"
+[ -f notes.md ] && TEXT_FILES="$TEXT_FILES notes.md"
 for f in state threads timeline facts; do [ -f "bible/$f.md" ] && TEXT_FILES="$TEXT_FILES bible/$f.md"; done
 
 stale=""

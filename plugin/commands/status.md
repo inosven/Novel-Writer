@@ -14,6 +14,7 @@ allowed-tools: Bash(cat *), Bash(ls *), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/*), R
 4. 列出 `summaries/Chapter-*.md`，得到已定稿章号。
 5. 读 `bible/state.md` 第一行取"截至第N章"。运行 `${CLAUDE_PLUGIN_ROOT}/scripts/bible-check.sh`，记录通过或失败。
 6. 读 `bible/threads.md`，取状态为"未收"的行。
+7. 读 `notes.md`（如有），数状态为"未处理"的批注。
 
 输出一张表和几行摘要：
 
@@ -25,6 +26,7 @@ allowed-tools: Bash(cat *), Bash(ls *), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/*), R
 | 1 | …… | 4213 | 已定稿 |
 | 2 | …… | 3980 | 已审稿 / 草稿 / 未写 |
 
+未处理批注：X 条（A2, A5）。运行 /novel:read 查看，/novel:revise N 处理。
 未收伏笔：
 - T1 …… （引入第2章，预计第8章）
 

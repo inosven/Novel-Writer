@@ -254,8 +254,9 @@ plugin/
 | `/novel:revise N [说明]` | 无说明时按 `reviews/Chapter-NN.md` 里的 critical 和 major 逐条修改；有说明时按说明修改。派 editor 子代理，用 Edit 工具做片段替换。结束时列出每处改动的前后对照。 | editor |
 | `/novel:finalize N` | 前置检查：`chapters/Chapter-NN.md` 存在；账本"截至"为 N-1；`reviews/Chapter-NN.md` 存在且无未解决 critical，否则警告并等用户确认。先运行 `bible-snapshot.sh N` 把账本存到 `bible/.history/before-NN/`，再派 archivist 子代理写 `summaries/Chapter-NN.md`、更新四个账本文件、把"截至"推到 N。结束后运行 `bible-check.sh`，失败则报告并提示用户检查账本。 | archivist |
 | `/novel:rollback N` | 撤销第 N 章到当前截至章的定稿。`rollback.sh N --dry-run` 列出将要做的事并等用户确认，再 `rollback.sh N`：用 `before-NN` 快照覆盖 `bible/`，第 N 章起的摘要和第 N 章之后的快照移到 `bible/.history/rollback-<时间戳>/`，正文和审稿报告不动，最后跑 `bible-check.sh`。没有快照的章（快照功能加入前定稿的）拒绝回滚。 | 无 |
-| `/novel:insert K [标题]` / `/novel:delete K` | `renumber.sh insert\|delete K [--dry-run]`：只允许在已定稿边界之后（K > 账本截至章）。平移 `chapters/`、`reviews/`（含 `.vK`）、`summaries/` 文件名，`outline.md` 的 `### 第N章` 标题，大纲和 `bible/*.md` 里所有"第N章"字样，`threads.md` 引入章/预计回收列；delete 把第 K 章正文、报告、大纲条目移到 `.trash/<时间戳>/`，预计在第 K 章回收的伏笔顺延。先 dry-run 给用户确认。 | 无 |
+| `/novel:insert K [标题]` / `/novel:delete K` | `renumber.sh insert\|delete K [--dry-run]`：只允许在已定稿边界之后（K > 账本截至章）。平移 `chapters/`、`reviews/`（含 `.vK`）、`summaries/` 文件名，`outline.md` 的 `### 第N章` 标题，大纲、`bible/*.md` 和 `notes.md` 里所有"第N章"字样，`threads.md` 引入章/预计回收列；delete 把第 K 章正文、报告、大纲条目移到 `.trash/<时间戳>/`，预计在第 K 章回收的伏笔顺延。先 dry-run 给用户确认。 | 无 |
 | `/novel:status` | 读 `novel.yaml`、`outline.md` 章数、`chapters/` 和 `summaries/` 文件列表、账本"截至"、`threads.md` 未收条目、各章字数。纯文件读取，直接在主对话输出表格。 | 无 |
+| `/novel:read [端口|stop]` | `reader.sh start|stop`。本地服务与界面见 `2026-09-21-reader-ui-design.md`。 | 无 |
 
 ### 4.3 子代理
 
