@@ -37,6 +37,7 @@ claude --plugin-dir /path/to/Novel-Writer/plugin
 | `/novel:rollback N` | 撤销第 N 章及之后的定稿：账本回到截至第 N-1 章，摘要移到备份，正文不动 |
 | `/novel:insert K [标题]` | 在第 K 章位置插入一章，后面的章号后移。只能在已定稿章之后 |
 | `/novel:delete K` | 删除第 K 章，正文和大纲条目移到 `.trash/`，后面的章号前移。只能删未定稿的章 |
+| `/novel:export [txt\|epub] [目录]` | 把已写各章合成 `export/《书名》.txt` 和 `.epub`（EPUB 3，无第三方依赖） |
 | `/novel:read [端口\|stop]` | 打开阅读界面：通读、选中批注、跨文件查找、看审稿报告；`stop` 停止 |
 | `/novel:status` | 进度 |
 
@@ -82,6 +83,7 @@ my-novel/
 │   ├── timeline.md     时间线
 │   ├── facts.md        硬设定
 │   └── .history/       定稿前快照与回滚备份
+├── export/             /novel:export 的 txt 和 epub
 ├── .novel/             上下文包临时文件，可删
 ├── .trash/             delete 移走的章，可删
 └── .claude/skills/<题材包>/

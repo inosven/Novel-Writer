@@ -29,6 +29,7 @@
 - `/novel:delete K`：删除第 K 章，移到 `.trash/`，后面章号前移（只能删未定稿的章）
 - `/novel:status`：进度
 - `/novel:read [端口]`：阅读界面，批注和跨文件查找
+- `/novel:export [txt|epub]`：把已写各章合成 txt 和 epub，写到 `export/`
 
 写、审、修、定稿、auto 都可以在章号后加模型覆盖：`/novel:write 5 opus` 或 `/novel:auto 8 writer=opus,reviewer=haiku`。不加就按 `novel.yaml` 的 `models` 段。
 
