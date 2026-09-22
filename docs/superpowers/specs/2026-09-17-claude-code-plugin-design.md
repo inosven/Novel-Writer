@@ -47,7 +47,7 @@ my-novel/
 ```yaml
 title: 洛阳残卷
 skill: sanguo-xuanyi        # .claude/skills/ 下的题材包目录名
-chapter_words: [4000, 6000] # 每章目标字数区间（中文字符数）
+chapter_words: [4000, 6000] # 每章目标字数区间（中文按字、英文按词，标点不算）
 pov: 第三人称限知
 models:                     # 各子代理用的模型，可省略；省略或 inherit 表示跟主对话相同
   writer: opus

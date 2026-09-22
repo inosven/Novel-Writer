@@ -176,6 +176,12 @@ class SearchTest(unittest.TestCase):
         info = store.project_info(FIXTURE)
         self.assertEqual(info, {"title": "夜班", "upto": 2, "planned": 6})
 
+    def test_count_words_mixed(self):
+        text = "# 标题 title\n\n他说 hello world，don't stop。日本語テスト 한국어 123 — \"quoted\"\n"
+        self.assertEqual(store.count_words(text), 17)
+        self.assertEqual(store.count_words("# t\n\nIt was a bright cold day in April, and the clocks were striking thirteen.\n"), 14)
+        self.assertEqual(store.count_words("# 只有标题"), 0)
+
     def test_safe_path(self):
         self.assertTrue(store.safe_path(FIXTURE, "chapters/Chapter-01.md").endswith("Chapter-01.md"))
         self.assertIsNone(store.safe_path(FIXTURE, "../run.sh"))
@@ -384,6 +390,7 @@ class ServerTest(unittest.TestCase):
             urllib.request.urlopen(r)
             self.fail("expected HTTPError")
         except urllib.error.HTTPError as e:
+            e.close()
             self.assertEqual(e.code, 415)
 
     def test_write_bad_host_rejected(self):
@@ -393,6 +400,7 @@ class ServerTest(unittest.TestCase):
             urllib.request.urlopen(r)
             self.fail("expected HTTPError")
         except urllib.error.HTTPError as e:
+            e.close()
             self.assertEqual(e.code, 403)
 
     def test_readonly_endpoints_dont_write(self):
