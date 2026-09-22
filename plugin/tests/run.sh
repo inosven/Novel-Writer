@@ -239,6 +239,34 @@ test_python() {
   if [ "$code" -eq 0 ]; then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); echo "FAIL: reader python tests"; echo "$out" | tail -20; fi
 }
 
+# ---------- reader.sh ----------
+test_reader_sh() {
+  local d out code port
+  command -v python3 >/dev/null 2>&1 || { echo "SKIP: python3 不存在，跳过 reader.sh 测试"; return 0; }
+  d="$(make_novel)"
+  port=$((20000 + RANDOM % 20000))
+  out="$(cd "$d" && bash "$SCRIPTS/reader.sh" status)"
+  assert_eq "reader.sh 未启动 status" "stopped" "$out"
+  out="$(cd "$d" && bash "$SCRIPTS/reader.sh" start "$port" 2>&1)"; code=$?
+  assert_exit "reader.sh start 退出 0" 0 $code
+  assert_eq "reader.sh start 打印地址" "http://127.0.0.1:${port}" "$out"
+  [ -f "$d/.novel/reader.pid" ]; assert_exit "reader.sh 写 pid" 0 $?
+  out="$(cd "$d" && bash "$SCRIPTS/reader.sh" start "$port" 2>&1)"; code=$?
+  assert_exit "reader.sh 重复 start 退出 0" 0 $code
+  assert_eq "reader.sh 重复 start 同地址" "http://127.0.0.1:${port}" "$out"
+  out="$(cd "$d" && bash "$SCRIPTS/reader.sh" status)"
+  assert_eq "reader.sh running status" "running http://127.0.0.1:${port}" "$out"
+  out="$(curl -s "http://127.0.0.1:${port}/api/project")"
+  assert_contains "reader.sh 服务可访问" "夜班" "$out"
+  out="$(cd "$d" && bash "$SCRIPTS/reader.sh" stop 2>&1)"; code=$?
+  assert_exit "reader.sh stop 退出 0" 0 $code
+  [ -f "$d/.novel/reader.pid" ]; assert_exit "reader.sh stop 删 pid" 1 $?
+  out="$(cd "$d" && bash "$SCRIPTS/reader.sh" status)"
+  assert_eq "reader.sh 停后 status" "stopped" "$out"
+  (cd "$d" && bash "$SCRIPTS/reader.sh" start 99999) >/dev/null 2>&1
+  assert_exit "reader.sh 非法端口" 1 $?
+}
+
 # ---------- wordcount-hook.sh ----------
 test_hook() {
   local d out
@@ -558,6 +586,7 @@ test_context_save
 test_context_prev_review
 test_renumber
 test_python
+test_reader_sh
 
 echo "passed: $PASS, failed: $FAIL"
 [ "$FAIL" -eq 0 ]
