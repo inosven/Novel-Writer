@@ -445,6 +445,98 @@ test_context_prev_review() {
   assert_not_contains "context write 模式无该段" "===== 上一版审稿报告 =====" "$out"
 }
 
+# ---------- renumber.sh ----------
+test_renumber() {
+  local d out code
+  d="$(make_novel)"   # 账本截至第2章，大纲 6 章，正文/摘要 1-2
+  # 造一个第 3 章草稿、报告和一个半更新快照
+  printf '# 第3章 夜里的电话\n\n正文草稿。\n' > "$d/chapters/Chapter-03.md"
+  mkdir -p "$d/reviews" "$d/bible/.history/before-03" "$d/bible/.history/before-04" "$d/bible/.history/before-05"
+  printf '# 第3章 审稿报告\n' > "$d/reviews/Chapter-03.md"
+  printf '# v1\n' > "$d/reviews/Chapter-03.v1.md"
+  cp "$d/bible/"*.md "$d/bible/.history/before-03/"
+  cp "$d/bible/"*.md "$d/bible/.history/before-04/"
+  cp "$d/bible/"*.md "$d/bible/.history/before-05/"
+  cp "$d/outline.md" "$d/outline.orig"; cp "$d/bible/threads.md" "$d/threads.orig"
+
+  # 参数校验
+  (cd "$d" && bash "$SCRIPTS/renumber.sh") >/dev/null 2>&1;            assert_exit "renumber 缺参数" 1 $?
+  (cd "$d" && bash "$SCRIPTS/renumber.sh" move 3) >/dev/null 2>&1;     assert_exit "renumber 未知操作" 1 $?
+  (cd "$d" && bash "$SCRIPTS/renumber.sh" insert 3x) >/dev/null 2>&1;  assert_exit "renumber 非法章号" 1 $?
+  out="$(cd "$d" && bash "$SCRIPTS/renumber.sh" insert 2 2>&1)"; code=$?
+  assert_exit "renumber insert 已定稿位置拒绝" 1 $code
+  assert_contains "renumber insert 拒绝说明" "截至第2章" "$out"
+  (cd "$d" && bash "$SCRIPTS/renumber.sh" insert 8) >/dev/null 2>&1;   assert_exit "renumber insert 超出末尾+1 拒绝" 1 $?
+  (cd "$d" && bash "$SCRIPTS/renumber.sh" delete 2) >/dev/null 2>&1;   assert_exit "renumber delete 已定稿拒绝" 1 $?
+  (cd "$d" && bash "$SCRIPTS/renumber.sh" delete 7) >/dev/null 2>&1;   assert_exit "renumber delete 超出末尾拒绝" 1 $?
+
+  # dry-run 不动
+  out="$(cd "$d" && bash "$SCRIPTS/renumber.sh" insert 4 "新章" "一句话" --dry-run 2>&1)"; code=$?
+  assert_exit "renumber dry-run 退出 0" 0 $code
+  assert_contains "renumber dry-run 提到大纲" "outline.md" "$out"
+  assert_eq "renumber dry-run 大纲不变" "$(cat "$d/outline.orig")" "$(cat "$d/outline.md")"
+
+  # 在第 4 章位置插入（大纲上的未写章）
+  out="$(cd "$d" && bash "$SCRIPTS/renumber.sh" insert 4 "新章" "一句话摘要" 2>&1)"; code=$?
+  assert_exit "renumber insert 4 成功" 0 $code
+  assert_eq "renumber insert 4 大纲章数" "7" "$(grep -c '^### 第[0-9]*章' "$d/outline.md")"
+  assert_contains "renumber insert 4 新标题" "### 第4章: 新章" "$(cat "$d/outline.md")"
+  assert_contains "renumber insert 4 新摘要" "**摘要**: 一句话摘要" "$(cat "$d/outline.md")"
+  assert_contains "renumber insert 4 后移标题" "### 第5章: 老陈的旧事" "$(cat "$d/outline.md")"
+  assert_contains "renumber insert 4 末章" "### 第7章: 天亮" "$(cat "$d/outline.md")"
+  assert_contains "renumber insert 4 第3章不动" "### 第3章: 夜里的电话" "$(cat "$d/outline.md")"
+  assert_eq "renumber insert 4 新章在第5章之前" "1" "$(awk '/^### 第4章: 新章/{a=NR} /^### 第5章/{b=NR} END{print (a<b)?1:0}' "$d/outline.md")"
+  assert_contains "renumber insert 4 伏笔预计回收 5→6" "| T1 | 钥匙开的是什么锁 | 1 | 6 | 未收 |" "$(cat "$d/bible/threads.md")"
+  assert_contains "renumber insert 4 伏笔预计回收 4→5" "| T3 | 47 号楼里住过谁 | 2 | 5 | 未收 |" "$(cat "$d/bible/threads.md")"
+  assert_eq "renumber insert 4 账本首行不动" "# 故事状态（截至第2章）" "$(head -1 "$d/bible/state.md")"
+  [ -f "$d/chapters/Chapter-03.md" ]; assert_exit "renumber insert 4 第3章草稿不动" 0 $?
+  [ -d "$d/bible/.history/before-05" ]; assert_exit "renumber insert 4 移走 >K 的快照" 1 $?
+  [ -d "$d/bible/.history/before-04" ]; assert_exit "renumber insert 4 保留 before-K（仍是截至 K-1 的状态）" 0 $?
+  [ -d "$d/bible/.history/before-03" ]; assert_exit "renumber insert 4 保留 <K 的快照" 0 $?
+  (cd "$d" && bash "$SCRIPTS/bible-check.sh") >/dev/null 2>&1; assert_exit "renumber insert 后 bible-check" 0 $?
+  out="$(cd "$d" && bash "$SCRIPTS/context.sh" 3 write 2>&1)"; code=$?
+  assert_exit "renumber insert 后 context write 3" 0 $code
+
+  # 删掉刚插的第 4 章：大纲和伏笔表应完全复原
+  out="$(cd "$d" && bash "$SCRIPTS/renumber.sh" delete 4 2>&1)"; code=$?
+  assert_exit "renumber delete 4 成功" 0 $code
+  assert_eq "renumber 插删往返大纲复原" "$(cat "$d/outline.orig")" "$(cat "$d/outline.md")"
+  assert_eq "renumber 插删往返伏笔复原" "$(cat "$d/threads.orig")" "$(cat "$d/bible/threads.md")"
+  local tr
+  tr="$(ls -d "$d"/.trash/* | head -1)"
+  assert_contains "renumber delete 大纲条目进回收" "### 第4章: 新章" "$(cat "$tr/outline-第4章.md")"
+
+  # 在第 3 章（有草稿）位置插入：文件后移
+  out="$(cd "$d" && bash "$SCRIPTS/renumber.sh" insert 3 "插队" "摘要" 2>&1)"; code=$?
+  assert_exit "renumber insert 3 成功" 0 $code
+  [ -f "$d/chapters/Chapter-04.md" ]; assert_exit "renumber insert 3 正文后移" 0 $?
+  [ -f "$d/chapters/Chapter-03.md" ]; assert_exit "renumber insert 3 原位空出" 1 $?
+  [ -f "$d/reviews/Chapter-04.md" ] && [ -f "$d/reviews/Chapter-04.v1.md" ]; assert_exit "renumber insert 3 报告含 v1 后移" 0 $?
+  assert_contains "renumber insert 3 大纲" "### 第4章: 夜里的电话" "$(cat "$d/outline.md")"
+  [ -d "$d/bible/.history/before-03" ]; assert_exit "renumber insert 3 保留 before-K" 0 $?
+
+  # 删掉有草稿的第 4 章（原第 3 章）：文件进回收，后面前移；T3 预计回收改成 4 以触发顺延提醒
+  printf '# 第5章\n草稿五\n' > "$d/chapters/Chapter-05.md"
+  perl -CSD -pi -e 'use utf8; s/^(\| T3 \|[^|]*\|[^|]*\| )5( \|)/${1}4$2/' "$d/bible/threads.md"
+  out="$(cd "$d" && bash "$SCRIPTS/renumber.sh" delete 4 2>&1)"; code=$?
+  assert_exit "renumber delete 4 有草稿成功" 0 $code
+  tr="$(ls -dt "$d"/.trash/* | head -1)"
+  assert_contains "renumber delete 正文进回收" "正文草稿" "$(cat "$tr/chapters/Chapter-04.md")"
+  [ -f "$tr/reviews/Chapter-04.v1.md" ]; assert_exit "renumber delete 报告进回收" 0 $?
+  assert_eq "renumber delete 后面前移" "草稿五" "$(tail -1 "$d/chapters/Chapter-04.md")"
+  [ -f "$d/chapters/Chapter-05.md" ]; assert_exit "renumber delete 原位空出" 1 $?
+  assert_eq "renumber delete 大纲章数" "6" "$(grep -c '^### 第[0-9]*章' "$d/outline.md")"
+  assert_contains "renumber delete 提醒顺延" "T3" "$out"
+  assert_contains "renumber delete 提醒顺延措辞" "顺延" "$out"
+  assert_contains "renumber delete 预计回收=K 不变" "| T3 | 47 号楼里住过谁 | 2 | 4 | 未收 |" "$(cat "$d/bible/threads.md")"
+  assert_contains "renumber delete 预计回收>K 减一" "| T1 | 钥匙开的是什么锁 | 1 | 5 | 未收 |" "$(cat "$d/bible/threads.md")"
+
+  # 追加到末尾
+  out="$(cd "$d" && bash "$SCRIPTS/renumber.sh" insert 7 "尾声" "结束" 2>&1)"; code=$?
+  assert_exit "renumber insert 末尾+1 成功" 0 $code
+  assert_eq "renumber insert 末尾标题" "### 第7章: 尾声" "$(grep '^### 第7章' "$d/outline.md")"
+}
+
 test_wordcount
 test_bible_check
 test_context
@@ -454,6 +546,7 @@ test_model
 test_rollback
 test_context_save
 test_context_prev_review
+test_renumber
 
 echo "passed: $PASS, failed: $FAIL"
 [ "$FAIL" -eq 0 ]
