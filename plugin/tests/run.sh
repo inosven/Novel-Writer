@@ -264,7 +264,7 @@ test_notes_integration() {
 
 # ---------- reader.sh ----------
 test_reader_sh() {
-  local d out code port
+  local d out code port port2 occ
   command -v python3 >/dev/null 2>&1 || { echo "SKIP: python3 不存在，跳过 reader.sh 测试"; return 0; }
   d="$(make_novel)"
   port=$((20000 + RANDOM % 20000))
@@ -288,6 +288,15 @@ test_reader_sh() {
   assert_eq "reader.sh 停后 status" "stopped" "$out"
   (cd "$d" && bash "$SCRIPTS/reader.sh" start 99999) >/dev/null 2>&1
   assert_exit "reader.sh 非法端口" 1 $?
+  # 端口被占用：reader.py 绑定失败快速退出，start 应退出 1 且不留 pid 文件
+  port2=$((40000 + RANDOM % 20000))
+  python3 -m http.server "$port2" --bind 127.0.0.1 >/dev/null 2>&1 &
+  occ=$!
+  sleep 0.3
+  out="$(cd "$d" && bash "$SCRIPTS/reader.sh" start "$port2" 2>&1)"; code=$?
+  assert_exit "reader.sh 端口占用时 start 退出 1" 1 $code
+  [ -f "$d/.novel/reader.pid" ]; assert_exit "reader.sh 端口占用时不留 pid" 1 $?
+  kill "$occ" 2>/dev/null
 }
 
 # ---------- wordcount-hook.sh ----------

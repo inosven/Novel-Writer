@@ -35,10 +35,11 @@ case "$CMD" in
     printf '%s\n%s\n' "$pid" "$PORT" > "$PIDF"
     i=0
     while [ "$i" -lt 30 ]; do
-      if curl -s -o /dev/null "http://127.0.0.1:${PORT}/api/project"; then echo "http://127.0.0.1:${PORT}"; exit 0; fi
+      if curl -s -f -o /dev/null "http://127.0.0.1:${PORT}/api/project"; then echo "http://127.0.0.1:${PORT}"; exit 0; fi
       if ! alive "$pid"; then break; fi
       sleep 0.1; i=$((i+1))
     done
+    alive "$pid" && kill "$pid" 2>/dev/null
     echo "服务启动失败，日志：${LOGF}" >&2; tail -5 "$LOGF" >&2
     rm -f "$PIDF"; exit 1 ;;
   stop)
