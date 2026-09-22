@@ -81,7 +81,7 @@
 <script>
 const state = { chapters: [], current: null, notes: [], review: null, tab: 'notes' };
 const $ = (s, el = document) => el.querySelector(s);
-const esc = s => s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const esc = s => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 async function api(method, path, body) {
   const r = await fetch(path, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
@@ -100,7 +100,7 @@ async function loadProject() {
       <span>第${c.n}章 ${esc(c.title)}</span><small>${c.words}${c.finalized ? ' ✓' : ''}${c.has_review ? ' 审' : ''}</small></div>`).join('');
   $('#otherlist').innerHTML = ['outline.md', 'bible/state.md', 'bible/threads.md', 'bible/timeline.md', 'bible/facts.md']
     .map(f => `<div class="ch" data-path="${f}"><span>${f}</span></div>`).join('');
-  document.querySelectorAll('.ch').forEach(el => el.onclick = () => loadFile(el.dataset.path));
+  document.querySelectorAll('.ch').forEach(el => el.onclick = () => loadFile(el.dataset.path).catch(e => toast('打不开：' + e.message)));
 }
 
 async function loadFile(path) {
@@ -227,7 +227,7 @@ $('#allnotes').onchange = renderNotes;
 $('#otherpath').addEventListener('keydown', e => {
   if (e.key !== 'Enter') return;
   const p = e.target.value.trim();
-  if (p) loadFile(p);
+  if (p) loadFile(p).catch(e => toast('打不开：' + e.message));
 });
 
 let sel = null; // {quote, index}
@@ -259,7 +259,7 @@ function selectionOffset() {
   return { quote, index: idx };
 }
 document.addEventListener('mouseup', e => {
-  if (e.target.closest('#float') || e.target.closest('#noteform')) return;
+  if (e.target.closest && (e.target.closest('#float') || e.target.closest('#noteform'))) return;
   setTimeout(() => {
     sel = selectionOffset();
     const f = $('#float');
@@ -282,6 +282,7 @@ $('#btn-note').onclick = () => {
 $('#nf-cancel').onclick = () => $('#noteform').style.display = 'none';
 $('#nf-target').onchange = () => { const isNew = !$('#nf-target').value; $('#nf-title').style.display = isNew ? '' : 'none'; };
 $('#nf-ok').onclick = () => {
+  if (!sel) { toast('选区已丢失，请重新选中'); return; }
   const loc = { path: state.current.path, quote: sel.quote, index: sel.index };
   const target = $('#nf-target').value;
   $('#noteform').style.display = 'none';
