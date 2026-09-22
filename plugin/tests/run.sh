@@ -396,6 +396,29 @@ test_rollback() {
   assert_eq "rollback 半更新账本仍截至第2章" "# 故事状态（截至第2章）" "$(head -1 "$d/bible/state.md")"
 }
 
+# ---------- context.sh --save ----------
+test_context_save() {
+  local d out code f
+  d="$(make_novel)"
+  out="$(cd "$d" && bash "$SCRIPTS/context.sh" 2 review --save 2>&1)"; code=$?
+  assert_exit "context --save 退出 0" 0 $code
+  assert_eq "context --save 只打印一行" "1" "$(printf '%s\n' "$out" | wc -l | tr -d ' ')"
+  assert_eq "context --save 路径" "$d/.novel/context-02-review.md" "$out"
+  f="$out"
+  [ -f "$f" ]; assert_exit "context --save 文件存在" 0 $?
+  assert_contains "context --save 内容含正文段" "===== 本章正文 =====" "$(cat "$f")"
+  assert_eq "context --save 与 stdout 模式一致" "$(cd "$d" && bash "$SCRIPTS/context.sh" 2 review)" "$(cat "$f")"
+  # 再跑一次覆盖
+  (cd "$d" && bash "$SCRIPTS/context.sh" 2 review --save) >/dev/null
+  assert_eq "context --save 覆盖不追加" "1" "$(grep -c '^===== 本章正文 =====$' "$f")"
+  # 前置检查失败时不建文件
+  out="$(cd "$d" && bash "$SCRIPTS/context.sh" 4 write --save 2>&1)"; code=$?
+  assert_exit "context --save 前置失败退出 1" 1 $code
+  [ -f "$d/.novel/context-04-write.md" ]; assert_exit "context --save 前置失败不建文件" 1 $?
+  (cd "$d" && bash "$SCRIPTS/context.sh" 2 review --nope) >/dev/null 2>&1
+  assert_exit "context 第三个参数非法" 1 $?
+}
+
 test_wordcount
 test_bible_check
 test_context
@@ -403,6 +426,7 @@ test_context_more
 test_hook
 test_model
 test_rollback
+test_context_save
 
 echo "passed: $PASS, failed: $FAIL"
 [ "$FAIL" -eq 0 ]

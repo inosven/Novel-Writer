@@ -72,6 +72,7 @@ my-novel/
 │   ├── timeline.md     时间线
 │   ├── facts.md        硬设定
 │   └── .history/       定稿前快照与回滚备份
+├── .novel/             上下文包临时文件，可删
 └── .claude/skills/<题材包>/
 ```
 
