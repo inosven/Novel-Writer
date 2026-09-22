@@ -419,6 +419,32 @@ test_context_save() {
   assert_exit "context 第三个参数非法" 1 $?
 }
 
+# ---------- context.sh 上一版审稿报告 ----------
+test_context_prev_review() {
+  local d out
+  d="$(make_novel)"
+  out="$(cd "$d" && bash "$SCRIPTS/context.sh" 2 review)"
+  assert_not_contains "context 无旧报告不出该段" "===== 上一版审稿报告 =====" "$out"
+  mkdir -p "$d/reviews"
+  printf '# 第2章 审稿报告\n\n## 汇总\ncritical 1 / major 0 / minor 0 / suggestion 0\n\n## critical\n### C1 旧版一\n- 未处理：作者接受\n' > "$d/reviews/Chapter-02.v1.md"
+  out="$(cd "$d" && bash "$SCRIPTS/context.sh" 2 review)"
+  assert_contains "context 有 v1 出该段" "===== 上一版审稿报告 =====" "$out"
+  assert_contains "context 该段注明来源" "reviews/Chapter-02.v1.md" "$out"
+  assert_contains "context 该段含旧报告内容" "### C1 旧版一" "$out"
+  printf '# v2\n### C1 旧版二\n' > "$d/reviews/Chapter-02.v2.md"
+  printf '# v10\n### C1 旧版十\n' > "$d/reviews/Chapter-02.v10.md"
+  out="$(cd "$d" && bash "$SCRIPTS/context.sh" 2 review)"
+  assert_contains "context 取最大版本号（数值比较）" "### C1 旧版十" "$out"
+  assert_not_contains "context 不带旧版本" "### C1 旧版二" "$out"
+  # 当前报告（未归档的 reviews/Chapter-02.md）不算上一版
+  printf '# 当前\n### C1 当前报告\n' > "$d/reviews/Chapter-02.md"
+  out="$(cd "$d" && bash "$SCRIPTS/context.sh" 2 review)"
+  assert_not_contains "context 不带当前报告" "### C1 当前报告" "$out"
+  # write 模式不带
+  out="$(cd "$d" && bash "$SCRIPTS/context.sh" 3 write)"
+  assert_not_contains "context write 模式无该段" "===== 上一版审稿报告 =====" "$out"
+}
+
 test_wordcount
 test_bible_check
 test_context
@@ -427,6 +453,7 @@ test_hook
 test_model
 test_rollback
 test_context_save
+test_context_prev_review
 
 echo "passed: $PASS, failed: $FAIL"
 [ "$FAIL" -eq 0 ]

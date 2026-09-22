@@ -118,6 +118,21 @@ if [ "$MODE" = review ]; then
   section "本章正文"
   cat "chapters/Chapter-$NN.md"
 
+  # 上一版审稿报告：reviews/Chapter-NN.vK.md 里 K 最大的那份（当前 reviews/Chapter-NN.md 不算）
+  prev_review=""
+  prev_k=0
+  for f in "reviews/Chapter-${NN}".v[0-9]*.md; do
+    [ -f "$f" ] || continue
+    k="$(echo "$f" | sed -n 's/.*\.v\([0-9][0-9]*\)\.md$/\1/p')"
+    [ -n "$k" ] || continue
+    if [ "$((10#$k))" -gt "$prev_k" ]; then prev_k=$((10#$k)); prev_review="$f"; fi
+  done
+  if [ -n "$prev_review" ]; then
+    section "上一版审稿报告"
+    echo "（来源：${prev_review}。这是复审：沿用其中仍成立条目的编号和严重度，标了「已处理」的核实是否已改好，标了「未处理」的不再提出。）"
+    cat "$prev_review"
+  fi
+
   section "关键词检索"
   echo "（本章出场角色名在前文正文中最近的出现位置，每个名字最多 5 处，从第${PREV}章往前找）"
   if [ -n "$CHARS" ]; then
