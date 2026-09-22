@@ -5,7 +5,7 @@ disable-model-invocation: true
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/*), Bash(ls *), Bash(mv *), Read, Agent
 ---
 
-修订第 $0 章。完整参数：`$ARGUMENTS`。
+修订第 $0 章。完整参数：`$ARGUMENTS`。脚本一律按 `${CLAUDE_PLUGIN_ROOT}/scripts/名字.sh` 直接调用，不要去列插件目录、不要打印环境变量、不要用 `cat`/`sed`/`grep` 管道读文件（这些都不在白名单里，会触发权限确认）；读报告、大纲、账本一律用 Read 工具。
 
 步骤：
 
