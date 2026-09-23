@@ -18,14 +18,106 @@ cd Novel-Writer
 bash plugin/tests/run.sh     # optional: check the scripts work on your system
 ```
 
-Start Claude Code inside your novel's directory:
+Nothing is installed globally: you point Claude Code at the `plugin/` folder every time you start it (step 1 below).
+
+## Getting started: your first chapter, step by step
+
+Everything happens inside one folder, one folder per book. Claude Code runs in that folder; the plugin adds `/novel:...` commands to it. In every command below, `N` is a chapter number: `/novel:write 3` means "write chapter 3".
+
+**1. Create a folder and start Claude Code in it.**
 
 ```bash
 mkdir my-novel && cd my-novel
 claude --plugin-dir /path/to/Novel-Writer/plugin
 ```
 
-## Commands
+`/path/to/Novel-Writer` is wherever you cloned this repository. You now have a normal Claude Code session; type the commands below at its prompt.
+
+**2. Initialize the project.**
+
+```
+/novel:init
+```
+
+It asks for a title, then creates `novel.yaml`, `characters/`, `chapters/`, `reviews/`, `summaries/`, an empty `bible/` and copies the `general` genre pack into `.claude/skills/`. Use `/novel:init sanguo-xuanyi` to start from the Three Kingdoms mystery pack instead.
+
+**3. Plan the book in dialogue.**
+
+```
+/novel:plan
+```
+
+Claude asks you one question at a time: premise, theme, length, main characters, how the story ends. Answer in plain sentences. At the end it writes `outline.md` (one entry per chapter with a summary, key events and cast), one file per character in `characters/`, and the starting state of the bible. Open these files and edit anything you disagree with; they are plain Markdown.
+
+**4. Write chapter 1.**
+
+```
+/novel:write 1
+```
+
+A writer subagent reads the outline entry for chapter 1, the character files, the bible and the genre pack, then writes `chapters/Chapter-01.md` and stops. Nothing else changes. Read the draft; fix small things by hand if you like.
+
+**5. Get it reviewed.**
+
+```
+/novel:review 1
+```
+
+A reviewer subagent checks the draft against the bible, the outline and the character files, and writes `reviews/Chapter-01.md`: a list of problems graded critical (contradicts established facts), major (plot or motivation holes), minor and suggestion, each with the quoted sentence, the evidence and a suggested fix. The summary line and the critical items are shown in the chat.
+
+**6. Fix what the review found.**
+
+```
+/novel:revise 1
+```
+
+An editor subagent applies the critical and major items with targeted edits (it never rewrites the whole chapter), marks each item in the report as handled, and the chapter is automatically reviewed again. If you would rather give your own instructions, write them after the chapter number: `/novel:revise 1 cut the flashback in the middle`.
+
+**7. Finalize the chapter.**
+
+```
+/novel:finalize 1
+```
+
+This is the step that makes the book coherent. An archivist subagent writes `summaries/Chapter-01.md` and updates the four bible files: where every character is and what they know, which threads were planted or paid off, the timeline, and new hard facts. From now on chapter 1 is "canon". The next chapter cannot be written until this step is done, on purpose.
+
+**8. Repeat for the next chapter.**
+
+```
+/novel:write 2
+```
+
+Same loop: write, review, revise, finalize. Each chapter's writer receives the whole bible plus the end of the previous chapter, so it knows exactly where the story stands.
+
+**9. Or let it run.**
+
+```
+/novel:auto 6
+```
+
+Writes, reviews, revises once and finalizes every chapter up to chapter 6 without asking. It stops early only if a chapter still has a critical issue after one revision, and tells you what to look at.
+
+**10. Read with a pen in hand.**
+
+```
+/novel:read
+```
+
+Opens `http://127.0.0.1:8765` in your browser. Select any sentence and click "批注" to leave a note ("this is wrong"), or "查找" to find the same words elsewhere in the book and attach those places to the same note. Your notes go to `notes.md`; the next `/novel:revise N` handles them together with the review report. `/novel:read stop` shuts the server down.
+
+**11. Export.**
+
+```
+/novel:export
+```
+
+Writes `export/<title>.txt` and `export/<title>.epub` from the chapters written so far.
+
+`/novel:status` at any time shows which chapters exist, which are finalized, how many notes are open and which threads are still unresolved.
+
+## Command reference
+
+`N` is a chapter number, `K` a position in the outline, `[model]` an optional model override (see below).
 
 | Command | What it does |
 |---|---|
