@@ -1,104 +1,108 @@
 # NovelWriter
 
-一个 Claude Code plugin，用来写长篇小说。它不调用模型 API，而是在你的小说目录里给 Claude Code 提供命令、子代理和一套"故事账本"，用你自己的 Claude 订阅逐章写作。
+English | [中文](README.zh.md)
 
-## 为什么
+A Claude Code plugin for writing long-form fiction. It does not call a model API itself. Instead it gives Claude Code, running in your novel's directory under your own Claude subscription, a set of commands, subagents and a human-readable "story bible", and writes the book chapter by chapter.
 
-长篇小说最难的不是文笔，是连贯：第 12 章的角色得记得第 3 章受的伤，得不知道第 9 章别人背着他做的事。摘要和向量检索都留不住这些。NovelWriter 用一个人类可读的账本记录"截至第 N 章的世界状态"，每章写作前整份交给模型，每章定稿后由模型更新。
+## Why
 
-## 安装
+The hard part of a long novel is not prose, it is continuity: in chapter 12 a character must still remember the wound from chapter 3, and must still not know what someone did behind his back in chapter 9. Summaries and vector search lose exactly these facts. NovelWriter keeps a readable ledger of "the state of the world as of chapter N", hands the whole thing to the model before every chapter, and has the model update it after every chapter is finalized.
 
-需要 Claude Code 2.1 以上。
+## Install
+
+Requires Claude Code 2.1 or later and Python 3 (for the reader UI only).
 
 ```bash
 git clone https://github.com/inosven/Novel-Writer.git
 cd Novel-Writer
-bash plugin/tests/run.sh     # 可选：确认脚本在你的系统上正常
+bash plugin/tests/run.sh     # optional: check the scripts work on your system
 ```
 
-在你的小说目录里启动：
+Start Claude Code inside your novel's directory:
 
 ```bash
 mkdir my-novel && cd my-novel
 claude --plugin-dir /path/to/Novel-Writer/plugin
 ```
 
-## 用法
+## Commands
 
-| 命令 | 作用 |
+| Command | What it does |
 |---|---|
-| `/novel:init [题材包]` | 初始化项目。不带参数用通用包 `general`，示例题材包 `sanguo-xuanyi` |
-| `/novel:plan` | 对话式规划：大纲、角色档案、账本初始内容 |
-| `/novel:write N [模型]` | 写第 N 章草稿，写完停下 |
-| `/novel:review N [模型]` | 审稿，报告在 `reviews/Chapter-NN.md` |
-| `/novel:revise N [模型] [说明]` | 按审稿报告或你的说明做定点修改，改完自动复审 |
-| `/novel:finalize N [模型]` | 定稿：生成摘要、更新账本 |
-| `/novel:auto N [模型]` | 连续写到第 N 章：每章写、审、修、复审、定稿，复审后仍有 critical 才停 |
-| `/novel:rollback N` | 撤销第 N 章及之后的定稿：账本回到截至第 N-1 章，摘要移到备份，正文不动 |
-| `/novel:insert K [标题]` | 在第 K 章位置插入一章，后面的章号后移。只能在已定稿章之后 |
-| `/novel:delete K` | 删除第 K 章，正文和大纲条目移到 `.trash/`，后面的章号前移。只能删未定稿的章 |
-| `/novel:export [txt\|epub] [目录]` | 把已写各章合成 `export/《书名》.txt` 和 `.epub`（EPUB 3，无第三方依赖） |
-| `/novel:read [端口\|stop]` | 打开阅读界面：通读、选中批注、跨文件查找、看审稿报告；`stop` 停止 |
-| `/novel:status` | 进度 |
+| `/novel:init [pack]` | Create a project. Uses the neutral `general` pack by default; `sanguo-xuanyi` is the sample genre pack |
+| `/novel:plan` | Plan the book in dialogue: outline, character files, initial bible |
+| `/novel:write N [model]` | Draft chapter N, then stop |
+| `/novel:review N [model]` | Review chapter N; the report goes to `reviews/Chapter-NN.md` |
+| `/novel:revise N [model] [instructions]` | Targeted edits from the review report, your notes, or your instructions; re-reviews automatically |
+| `/novel:finalize N [model]` | Finalize: write the summary, update the bible |
+| `/novel:auto N [model]` | Write through chapter N unattended: write, review, revise, re-review, finalize each chapter; stops only when a critical issue survives re-review |
+| `/novel:rollback N` | Undo the finalize of chapter N and later: bible restored to "as of N-1", summaries moved to a backup, chapter text untouched |
+| `/novel:insert K [title]` | Insert a chapter at position K and renumber what follows. Only after the finalized frontier |
+| `/novel:delete K` | Delete chapter K (text and outline entry go to `.trash/`) and renumber what follows. Unfinalized chapters only |
+| `/novel:export [txt\|epub] [dir]` | Merge the written chapters into `export/<title>.txt` and `.epub` (EPUB 3, no third-party tools) |
+| `/novel:read [port\|stop]` | Open the reader UI: read, annotate selected text, search across files, see review items; `stop` shuts it down |
+| `/novel:status` | Progress |
 
-典型循环：`write 3` → 自己读、随手改 → `review 3` → `revise 3` → `finalize 3` → `write 4`。想省事就 `auto 6`，它会一章章跑下去，只在复审后还剩 critical 时停下来找你。每次重审前旧报告会改名为 `reviews/Chapter-NN.v1.md` 留底，复审时审稿会读上一版：沿用编号和严重度，已标"未处理"的条目不再提出。
+The typical loop is `write 3` → read it yourself, tweak by hand → `review 3` → `revise 3` → `finalize 3` → `write 4`. If you would rather not babysit it, `auto 6` runs chapter after chapter and only comes back to you when a critical issue is still there after one revision round. Before every re-review the old report is renamed to `reviews/Chapter-NN.v1.md`, and the reviewer reads that previous version: it keeps item numbers and severities and does not re-raise items you marked as "won't fix".
 
-写第 N 章要求账本停在第 N-1 章，所以每章都要 finalize 才能往下写。这是刻意的：账本落后，后面的章节就会不连贯。
+Writing chapter N requires the bible to stand at chapter N-1, so every chapter has to be finalized before the next one. This is deliberate: a bible that lags behind produces incoherent chapters.
 
-定稿后想推倒重写某一章：`rollback N` 把账本恢复到该章定稿前的快照（每次 finalize 前自动存在 `bible/.history/before-NN/`），第 N 章起的摘要移到 `bible/.history/rollback-<时间戳>/` 备份，正文和审稿报告留在原地。然后改或 `write N` 重写，再 review、finalize。只有加入快照功能之后定稿的章才能回滚。
+To rewrite a chapter that is already finalized, `rollback N` restores the bible from the snapshot taken before that chapter was finalized (saved automatically in `bible/.history/before-NN/`), moves the summaries from chapter N on into `bible/.history/rollback-<timestamp>/`, and leaves the chapter text and reviews where they are. Then edit or `write N` again, review, finalize. Only chapters finalized after the snapshot feature was added can be rolled back.
 
-调整章节结构：`insert K` 和 `delete K` 会改文件名、`outline.md` 的章标题、大纲和账本里所有"第N章"字样、伏笔表的引入章和预计回收列。两者都只在已定稿边界之后操作，要动已定稿的章先 `rollback`。表格里的裸数字不会改，改完自己看一眼。
+To restructure, `insert K` and `delete K` rename the files, renumber the `### 第N章` headings in `outline.md`, shift every "第N章" reference in the outline and the bible, and adjust the introduced-in and expected-payoff columns of the thread table. Both only work past the finalized frontier; roll back first to touch a finalized chapter. Bare numbers inside tables are not touched, so glance over them afterwards.
 
-## 阅读界面
+## Reader UI
 
-`/novel:read` 在本机起一个小服务（只用 Python 3 标准库，只监听 127.0.0.1），浏览器里通读正文。选中一段文字可以"批注"（这里有问题）或"查找"（同样的话全书还有哪些地方，默认搜正文，可勾选大纲、角色档案、账本），查找命中能勾选后加入同一条批注。批注存在项目根目录 `notes.md`，攒够了运行 `/novel:revise N`，编辑连同审稿报告一起处理，处理过的位置标"已处理"。审稿报告条目也在界面里定位到正文，可以直接标"未处理"（不改）。
+`/novel:read` starts a small local server (Python standard library only, bound to 127.0.0.1) and you read the book in the browser. Select a passage to **annotate** it ("something is wrong here") or to **search** for the same words across the book (chapters by default; outline, character files and bible can be ticked), and add the hits you tick to the same note. Notes live in `notes.md` at the project root; once you have collected a few, run `/novel:revise N` and the editor handles them together with the review report, marking each handled location. Review items are also located in the text, and you can mark one as "won't fix" with a reason right there.
 
-## 指定模型
+## Choosing models
 
-四个子代理各用什么模型在 `novel.yaml` 的 `models` 段里定，`init` 生成的默认值是写手和审稿 `opus`，编辑和档案员 `sonnet`。填 `inherit` 就跟主对话相同。主对话只做调度，启动时 `claude --model sonnet` 就够。
+Each of the four subagents gets its model from the `models` section of `novel.yaml`. The defaults written by `init` are `opus` for the writer and the reviewer and `sonnet` for the editor and the archivist; `inherit` means "same as the main conversation". The main conversation only dispatches, so starting Claude Code with `claude --model sonnet` is enough.
 
-想临时换一个模型试试，在章号后面加一个参数：
+To try another model for one run, add it after the chapter number:
 
 ```
-/novel:write 5 opus                       # 这次写手用 opus
-/novel:auto 8 sonnet                      # 这一轮所有子代理都用 sonnet
-/novel:auto 8 writer=opus,reviewer=haiku  # 只换指定角色，其余按 novel.yaml
-/novel:revise 5 editor=sonnet 结尾改短    # 修订说明写在模型后面
+/novel:write 5 opus                       # writer uses opus this time
+/novel:auto 8 sonnet                      # every subagent uses sonnet for this run
+/novel:auto 8 writer=opus,reviewer=haiku  # only the named roles change, the rest follow novel.yaml
+/novel:revise 5 editor=sonnet make the ending shorter   # instructions go after the model
 ```
 
-## 目录结构
+## Project layout
 
 ```
 my-novel/
-├── novel.yaml          书名、题材包、每章字数、各子代理用的模型
-├── outline.md          大纲
-├── notes.md            作者批注
-├── characters/         角色档案
-├── chapters/           正文 Chapter-01.md …
-├── summaries/          定稿后的章节摘要
-├── reviews/            审稿报告
-├── bible/              故事账本
-│   ├── state.md        截至第 N 章的世界状态：每个角色在哪、知道什么、身上有什么、伤病
-│   ├── threads.md      伏笔清单
-│   ├── timeline.md     时间线
-│   ├── facts.md        硬设定
-│   └── .history/       定稿前快照与回滚备份
-├── export/             /novel:export 的 txt 和 epub
-├── .novel/             上下文包临时文件，可删
-├── .trash/             delete 移走的章，可删
-└── .claude/skills/<题材包>/
+├── novel.yaml          title, genre pack, chapter length, models per subagent
+├── outline.md          outline
+├── notes.md            author annotations
+├── characters/         character files
+├── chapters/           text, Chapter-01.md …
+├── summaries/          per-chapter summaries, written at finalize
+├── reviews/            review reports
+├── bible/              story bible
+│   ├── state.md        state of the world as of chapter N: where everyone is, what they know, what they carry, injuries
+│   ├── threads.md      planted threads and their payoffs
+│   ├── timeline.md     timeline
+│   ├── facts.md        hard facts
+│   └── .history/       pre-finalize snapshots and rollback backups
+├── export/             txt and epub from /novel:export
+├── .novel/             context-pack scratch files, safe to delete
+├── .trash/             chapters removed by delete, safe to delete
+└── .claude/skills/<pack>/
 ```
 
-账本只由 `/novel:finalize` 修改，但它是普通 Markdown，你随时可以手改。
+Only `/novel:finalize` modifies the bible, but it is plain Markdown and you can edit it by hand at any time.
 
-## 题材包
+Chapter length is counted as CJK characters plus words in alphabetic scripts, punctuation excluded, so `chapter_words` works for Chinese, English and mixed text alike.
 
-题材包决定大纲方法、人物方法、文风和审稿要点。plugin 自带两个：
+## Genre packs
 
-- `general`：题材中性，任何类型都能用。
-- `sanguo-xuanyi`：三国古装悬疑，作为定制范例。
+A genre pack sets the outlining method, the character method, the prose style and the review checklist. Two ship with the plugin:
 
-定制自己的：复制 `plugin/templates/skills/general` 到你项目的 `.claude/skills/<新名字>/`，改写五个文件，把 `novel.yaml` 的 `skill` 改成新名字。
+- `general`: genre-neutral, works for anything.
+- `sanguo-xuanyi`: Three Kingdoms period mystery, included as a customization example.
+
+To make your own, copy `plugin/templates/skills/general` into your project's `.claude/skills/<new-name>/`, rewrite the five method files, and set `skill` in `novel.yaml` to the new name. `init` copies the pack into the project, so each book can tune its own copy without touching the template.
 
 ## License
 
